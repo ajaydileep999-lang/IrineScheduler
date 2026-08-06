@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Irine HealthCity — Treatment Scheduler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal:#1d5c48; --teal-dark:#123f31; --teal-light:#e6f0ec;
+  --gold:#c9a84c; --gold-light:#f7edd2;
+  --ink:#20241f; --paper:#fbfaf6; --line:#e1ddd1; --muted:#7c8579; --white:#ffffff;
+  --ip:#c9673a; --op:#3a7ac9; --danger:#b23b3b; --danger-bg:#fdecec; --warn:#a6740f; --warn-bg:#fdf3dc;
+  --ok:#2f7a4f;
+  --radius:10px; --shadow:0 2px 10px rgba(18,63,49,0.08);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--paper);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;}
+h1,h2,h3,.serif{font-family:'Playfair Display',serif;}
+::selection{background:var(--gold-light);}
+
+.topbar{background:linear-gradient(120deg,var(--teal) 0%,var(--teal-dark) 100%);color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;box-shadow:var(--shadow);position:sticky;top:0;z-index:50;}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-mark{width:36px;height:36px;border-radius:9px;background:var(--gold);display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-weight:800;color:var(--teal-dark);font-size:17px;flex-shrink:0;}
+.brand-text h1{font-size:17px;margin:0;line-height:1.1;font-weight:700;}
+.brand-text span{font-size:10.5px;opacity:.8;letter-spacing:.4px;text-transform:uppercase;}
+.tabs{display:flex;gap:3px;background:rgba(255,255,255,0.1);padding:4px;border-radius:10px;flex-wrap:wrap;}
+.tab-btn{border:none;background:transparent;color:rgba(255,255,255,0.85);padding:7px 12px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.tab-btn:hover{background:rgba(255,255,255,0.12);}
+.tab-btn.active{background:#fff;color:var(--teal-dark);}
+.date-control{display:flex;align-items:center;gap:6px;}
+.date-control input[type=date]{border:none;border-radius:7px;padding:6px 9px;font-family:'Inter';font-size:12.5px;font-weight:600;color:var(--teal-dark);}
+.icon-btn{border:1px solid rgba(255,255,255,0.35);background:rgba(255,255,255,0.08);color:#fff;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;}
+.icon-btn:hover{background:rgba(255,255,255,0.2);}
+.operator-pill{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.12);padding:5px 10px;border-radius:20px;font-size:12px;cursor:pointer;}
+.sync-dot{width:8px;height:8px;border-radius:50%;background:#7bd68c;flex-shrink:0;}
+.sync-dot.local{background:#e0c060;}
+
+.container{max-width:1560px;margin:0 auto;padding:18px 20px 60px;}
+.view{display:none;}
+.view.active{display:block;}
+.panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px;}
+.panel-head h2{margin:0;font-size:16px;color:var(--teal-dark);}
+.panel-body{padding:15px 16px;}
+.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center;}
+.spacer{flex:1;}
+.btn{border:none;border-radius:8px;padding:8px 15px;font-weight:600;font-size:12.5px;cursor:pointer;font-family:'Inter';transition:transform .08s;display:inline-flex;align-items:center;gap:6px;}
+.btn:active{transform:scale(.97);}
+.btn-primary{background:var(--teal);color:#fff;}
+.btn-primary:hover{background:var(--teal-dark);}
+.btn-gold{background:var(--gold);color:var(--teal-dark);}
+.btn-outline{background:#fff;border:1px solid var(--line);color:var(--ink);}
+.btn-outline:hover{border-color:var(--teal);color:var(--teal);}
+.btn-danger{background:var(--danger-bg);color:var(--danger);}
+.btn-danger:hover{background:#f9d9d9;}
+.btn-sm{padding:5px 10px;font-size:11.5px;border-radius:6px;}
+.btn[disabled]{opacity:.4;cursor:not-allowed;}
+input[type=text],input[type=number],input[type=time],input[type=date],select,textarea{font-family:'Inter';font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);width:100%;}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;}
+label{font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px;}
+.field{display:flex;flex-direction:column;gap:2px;}
+.search-box{position:relative;}
+.search-box input{padding-left:28px;width:200px;}
+.search-box::before{content:"⌕";position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10.5px;font-weight:700;letter-spacing:.3px;}
+.badge-ip{background:#fbe6da;color:var(--ip);}
+.badge-op{background:#dcebfa;color:var(--op);}
+.badge-discharged{background:#eee;color:#888;}
+.badge-ok{background:#e3f3e8;color:var(--ok);}
+.badge-warn{background:var(--warn-bg);color:var(--warn);}
+
+/* grid */
+.grid-wrap{overflow:auto;border:1px solid var(--line);border-radius:9px;max-height:72vh;}
+table.grid{border-collapse:collapse;width:100%;min-width:900px;}
+table.grid thead th{position:sticky;top:0;background:var(--teal);color:#fff;z-index:5;padding:9px 11px;font-size:11.5px;text-align:left;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15);}
+table.grid thead th.room-col{left:0;z-index:7;min-width:150px;}
+table.grid tbody td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:7px 9px;vertical-align:top;min-width:145px;}
+table.grid tbody td.room-cell{position:sticky;left:0;background:var(--paper);z-index:4;min-width:150px;border-right:2px solid var(--line);}
+table.grid tbody tr:hover td{background:#f5f8f6;}
+table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
+.patient-name{font-weight:700;font-size:12.5px;color:var(--ink);}
+.patient-room{font-size:10.5px;color:var(--muted);font-weight:600;}
+.cell-chip{display:flex;flex-direction:column;gap:1px;background:var(--teal-light);border-radius:6px;padding:3px 7px;font-size:11px;margin-bottom:4px;cursor:pointer;border-left:3px solid var(--teal);}
+.cell-chip.conflict{border-left-color:var(--danger);background:var(--danger-bg);}
+.cell-chip:hover{filter:brightness(0.97);}
+.cell-chip b{color:var(--teal-dark);}
+.cell-add{border:1px dashed var(--line);color:var(--muted);border-radius:6px;padding:3px 7px;font-size:10.5px;cursor:pointer;text-align:center;}
+.cell-add:hover{border-color:var(--teal);color:var(--teal);background:var(--teal-light);}
+.dept-th-color{width:8px;height:8px;border-radius:3px;display:inline-block;margin-right:5px;}
+
+/* patients */
+.patient-layout{display:grid;grid-template-columns:290px 1fr;gap:14px;}
+.patient-list{border:1px solid var(--line);border-radius:9px;max-height:72vh;overflow:auto;background:#fff;}
+.patient-list-item{padding:9px 13px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.patient-list-item:hover{background:var(--teal-light);}
+.patient-list-item.active{background:var(--teal);color:#fff;}
+.patient-list-item.active .patient-room{color:rgba(255,255,255,0.8);}
+.detail-empty{padding:50px 20px;text-align:center;color:var(--muted);}
+.appt-card{border:1px solid var(--line);border-left:4px solid var(--teal);border-radius:8px;padding:9px 13px;margin-bottom:9px;display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;cursor:pointer;}
+.appt-time{font-weight:700;color:var(--teal-dark);}
+.appt-dept{font-weight:600;}
+.appt-meta{color:var(--muted);font-size:11.5px;margin-top:2px;}
+
+/* print */
+.print-table{width:100%;border-collapse:collapse;margin-top:10px;}
+.print-table th{background:var(--gold-light);color:var(--teal-dark);text-align:left;padding:7px 9px;font-size:11.5px;border:1px solid var(--line);}
+.print-table td{padding:6px 9px;border:1px solid var(--line);font-size:12px;}
+.print-table tr:nth-child(even) td{background:#faf9f5;}
+.dept-title-bar{background:var(--teal);color:#fff;padding:9px 15px;border-radius:8px;font-family:'Playfair Display',serif;font-size:15px;font-weight:700;display:flex;justify-content:space-between;align-items:center;margin-bottom:11px;}
+.patient-print-header{text-align:center;margin-bottom:14px;}
+.patient-print-header h2{margin:0 0 4px;color:var(--teal-dark);font-size:19px;}
+.patient-print-header .ar{direction:rtl;font-size:12px;color:var(--muted);}
+.print-meta-row{display:flex;justify-content:space-between;font-size:12.5px;font-weight:600;margin:10px 0;padding:8px 12px;background:var(--teal-light);border-radius:8px;}
+
+/* settings tables */
+.cfg-row{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid var(--line);border-radius:8px;margin-bottom:7px;background:#fff;flex-wrap:wrap;}
+.cfg-row input[type=text]{flex:1;min-width:90px;}
+.cfg-row input[type=number]{width:70px;}
+.chk-inline{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap;}
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media (max-width:980px){.settings-grid{grid-template-columns:1fr;}.patient-layout{grid-template-columns:1fr;}}
+.chip-multi{display:flex;flex-wrap:wrap;gap:5px;max-height:110px;overflow:auto;border:1px solid var(--line);border-radius:7px;padding:7px;}
+.chip-multi label{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);background:var(--paper);padding:4px 8px;border-radius:20px;cursor:pointer;margin:0;}
+.chip-multi input{width:auto;}
+
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(18,30,25,0.45);display:none;align-items:center;justify-content:center;z-index:100;padding:16px;}
+.overlay.show{display:flex;}
+.modal{background:#fff;border-radius:12px;padding:20px;max-width:480px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.25);max-height:90vh;overflow:auto;}
+.modal h3{margin:0 0 14px;color:var(--teal-dark);font-size:17px;}
+.modal .field{margin-bottom:11px;}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;}
+.conflict-box{border:1px solid var(--danger);background:var(--danger-bg);color:var(--danger);border-radius:8px;padding:10px 12px;font-size:12.5px;margin-bottom:12px;}
+.conflict-box b{display:block;margin-bottom:4px;}
+.conflict-box ul{margin:4px 0 0;padding-left:18px;}
+.soft-warn-box{border:1px solid var(--warn);background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:8px 12px;font-size:12px;margin-bottom:12px;}
+.override-row{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--danger);margin-top:6px;}
+.override-row input{width:auto;}
+
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--teal-dark);color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,0.25);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(-6px);}
+.hint{font-size:11.5px;color:var(--muted);margin-top:4px;}
+.empty-state{text-align:center;padding:45px 20px;color:var(--muted);}
+.empty-state .big{font-size:32px;margin-bottom:6px;}
+.print-radio{display:flex;gap:8px;}
+.print-radio label{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--ink);border:1px solid var(--line);padding:6px 11px;border-radius:20px;cursor:pointer;}
+.print-radio input{width:auto;}
+.print-radio label.sel{background:var(--teal);color:#fff;border-color:var(--teal);}
+
+@media print{
+  .no-print{display:none !important;}
+  body{background:#fff;}
+  .container{padding:0;max-width:100%;}
+  .panel{border:none;box-shadow:none;}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar no-print">
+  <div class="brand">
+    <div class="brand-mark">IH</div>
+    <div class="brand-text"><h1>Irine HealthCity</h1><span>Treatment Scheduler</span></div>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab-btn active" data-view="grid">Grid</button>
+    <button class="tab-btn" data-view="patients">Patients</button>
+    <button class="tab-btn" data-view="resources">Rooms &amp; Therapists</button>
+    <button class="tab-btn" data-view="print">Print Center</button>
+    <button class="tab-btn" data-view="settings">Settings</button>
+  </div>
+  <div class="row" style="gap:8px;">
+    <div class="date-control">
+      <button class="icon-btn" id="dateBack">‹</button>
+      <input type="date" id="activeDate">
+      <button class="icon-btn" id="dateFwd">›</button>
+      <button class="icon-btn" id="dateToday" title="Jump to today">●</button>
+    </div>
+    <div class="operator-pill" id="operatorPill" title="Click to change who is scheduling"><span class="sync-dot" id="syncDot"></span><span id="operatorLabel">Set your name</span></div>
+    <button class="icon-btn" id="btnRefresh" title="Refresh from shared data">⟳</button>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- GRID -->
+  <div class="view active" id="view-grid">
+    <div class="panel">
+      <div class="panel-head">
+        <h2 id="gridDateLabel">Total Schedule</h2>
+        <div class="row">
+          <div class="search-box"><input type="text" id="gridSearch" placeholder="Search room or patient…"></div>
+          <button class="btn btn-outline btn-sm" id="toggleIP">IP/OP: All</button>
+          <button class="btn btn-primary" id="btnAddPatientFromGrid">+ Add Patient</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="grid-wrap"><table class="grid" id="masterGrid"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PATIENTS -->
+  <div class="view" id="view-patients">
+    <div class="patient-layout">
+      <div class="panel" style="padding:0;">
+        <div class="panel-head"><h2>Patients</h2><button class="btn btn-primary btn-sm" id="btnAddPatient2">+ Add</button></div>
+        <div style="padding:9px;"><input type="text" id="patientSearch" placeholder="Search…"></div>
+        <div class="patient-list" id="patientList"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="patientDetailName">Select a patient</h2>
+          <div class="row" id="patientDetailActions" style="display:none;">
+            <button class="btn btn-outline btn-sm" id="btnEditPatient">Edit</button>
+            <button class="btn btn-danger btn-sm" id="btnDeletePatient">Remove</button>
+            <button class="btn btn-primary btn-sm" id="btnAddAppt">+ Add Treatment</button>
+          </div>
+        </div>
+        <div class="panel-body" id="patientDetailBody"><div class="detail-empty">Choose a patient on the left, or add a new one.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESOURCES: rooms/areas + therapists -->
+  <div class="view" id="view-resources">
+    <div class="settings-grid">
+      <div class="panel">
+        <div class="panel-head"><h2>Treatment Areas / Rooms</h2></div>
+        <div class="panel-body">
+          <div id="areaEditor"></div>
+          <button class="btn btn-primary btn-sm" id="btnAddArea" style="margin-top:6px;">+ Add Area</button>
+          <p class="hint">Capacity = how many patients that area can hold at the same time (1 for a private room; 6–8 for a shared physiotherapy hall). Tick which departments may use each area — leave all unticked to allow any department.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Therapists</h2></div>
+        <div class="panel-body">
+          <div id="therapistEditor"></div>
+          <button class="btn btn-primary btn-sm" id="btnAddTherapist" style="margin-top:6px;">+ Add Therapist</button>
+          <p class="hint">A therapist assigned to one treatment can't be booked for another patient in an overlapping time.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRINT CENTER -->
+  <div class="view" id="view-print">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Print Center — <span id="printDateLabel"></span></h2>
+        <div class="row no-print">
+          <button class="btn btn-gold" id="btnPrint">🖨 Print</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="row no-print" style="margin-bottom:14px;">
+          <div class="print-radio" id="printModeRadio">
+            <label class="sel" data-mode="total"><input type="radio" name="pmode" value="total" checked>Full Day Schedule</label>
+            <label data-mode="dept"><input type="radio" name="pmode" value="dept">By Department</label>
+            <label data-mode="patient"><input type="radio" name="pmode" value="patient">By Patient</label>
+          </div>
+          <select id="printDeptSelect" style="display:none;max-width:220px;"></select>
+          <select id="printPatientSelect" style="display:none;max-width:240px;"></select>
+        </div>
+        <div id="printBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="view" id="view-settings">
+    <div class="settings-grid">
+      <div class="panel">
+        <div class="panel-head"><h2>Departments</h2></div>
+        <div class="panel-body">
+          <div id="deptListEditor"></div>
+          <button class="btn btn-primary btn-sm" id="btnAddDept" style="margin-top:6px;">+ Add Department</button>
+          <p class="hint">Untick fields your department doesn't need. "Grid" print style shows time columns (like a physiotherapy sheet); "List" shows one row per booking.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Clinic Hours</h2></div>
+        <div class="panel-body">
+          <div class="grid3">
+            <div class="field"><label>Day starts</label><input type="time" id="cfgDayStart"></div>
+            <div class="field"><label>Lunch break start</label><input type="time" id="cfgLunchStart"></div>
+            <div class="field"><label>Day ends</label><input type="time" id="cfgDayEnd"></div>
+          </div>
+          <div class="field" style="margin-top:10px;"><label>Lunch break end</label><input type="time" id="cfgLunchEnd" style="max-width:160px;"></div>
+          <p class="hint">Booking inside the lunch break will show a soft reminder, not a hard block, in case of exceptions.</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Data &amp; Backup</h2></div>
+        <div class="panel-body">
+          <p class="hint" style="margin-top:0;" id="storageModeHint"></p>
+          <div class="row">
+            <button class="btn btn-outline" id="btnExport">⬇ Export Backup (.json)</button>
+            <button class="btn btn-outline" id="btnImport">⬆ Import Backup</button>
+            <input type="file" id="importFile" accept=".json" style="display:none;">
+          </div>
+          <div class="row" style="margin-top:10px;"><button class="btn btn-outline" id="btnExportExcel">⬇ Export Today's Schedule (.csv)</button></div>
+          <div class="row" style="margin-top:16px;"><button class="btn btn-danger" id="btnWipe">Erase all data</button></div>
+          <p class="hint" id="storageStat" style="margin-top:12px;"></p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Who's scheduling</h2></div>
+        <div class="panel-body">
+          <div class="field"><label>Your name</label><input type="text" id="cfgOperatorName" placeholder="e.g. Sinan"></div>
+          <div class="field" style="margin-top:8px;"><label>Your department</label><input type="text" id="cfgOperatorDept" placeholder="e.g. Ayurveda"></div>
+          <p class="hint">This is attached to bookings you make so it's clear who scheduled what — it isn't a password-protected login.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Patient -->
+<div class="overlay" id="modalPatient">
+  <div class="modal">
+    <h3 id="modalPatientTitle">Add Patient</h3>
+    <div class="field"><label>Room No.</label><input type="text" id="pfRoom" placeholder="e.g. 204 or OP"></div>
+    <div class="field"><label>Patient Name</label><input type="text" id="pfName" placeholder="Full name"></div>
+    <div class="grid2">
+      <div class="field"><label>Type</label><select id="pfType"><option value="IP">In-Patient (IP)</option><option value="OP">Out-Patient (OP)</option></select></div>
+      <div class="field"><label>Status</label><select id="pfStatus"><option value="active">Active</option><option value="discharged">Discharged</option></select></div>
+    </div>
+    <div class="field"><label>Notes (optional)</label><textarea id="pfNotes" rows="2" placeholder="Condition, allergies, etc."></textarea></div>
+    <div class="modal-actions"><button class="btn btn-outline" id="pfCancel">Cancel</button><button class="btn btn-primary" id="pfSave">Save</button></div>
+  </div>
+</div>
+
+<!-- Modal: Appointment -->
+<div class="overlay" id="modalAppt">
+  <div class="modal">
+    <h3 id="modalApptTitle">Add Treatment</h3>
+    <div id="conflictArea"></div>
+    <div class="field"><label>Patient</label><select id="afPatient"></select></div>
+    <div class="field"><label>Department</label><select id="afDept"></select></div>
+    <div class="field"><label>Area / Room</label><select id="afArea"></select></div>
+    <div class="grid3">
+      <div class="field"><label>Date</label><input type="date" id="afDate"></div>
+      <div class="field"><label>Time</label><input type="time" id="afTime"></div>
+      <div class="field"><label>Duration</label>
+        <select id="afDuration"><option value="15">15 min</option><option value="20">20 min</option><option value="25">25 min</option><option value="30">30 min</option><option value="45" selected>45 min</option><option value="60">60 min</option><option value="90">90 min</option></select>
+      </div>
+    </div>
+    <div class="field" id="afTherapistWrap"><label>Therapist(s)</label><div class="chip-multi" id="afTherapistChips"></div></div>
+    <div class="field" id="afMedicineWrap"><label>Treatment / Medicine / Notes</label><textarea id="afMedicine" rows="2" placeholder="e.g. Kottamchukkadi Tailam + Dhanwantaram Tailam"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="afDelete" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn btn-outline" id="afCancel">Cancel</button>
+      <button class="btn btn-primary" id="afSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Operator -->
+<div class="overlay" id="modalOperator">
+  <div class="modal">
+    <h3>Who's scheduling?</h3>
+    <div class="field"><label>Your name</label><input type="text" id="opName" placeholder="e.g. Sinan"></div>
+    <div class="field" style="margin-top:8px;"><label>Your department</label><input type="text" id="opDept" placeholder="e.g. Ayurveda"></div>
+    <div class="modal-actions"><button class="btn btn-primary" id="opSave">Save</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= Storage abstraction: shared (window.storage) with localStorage fallback ================= */
+const STORE_KEY = "ihc_scheduler_v2";
+const SHARED_KEY = "schedule-data";
+const hasShared = () => (typeof window.storage !== "undefined" && window.storage);
+
+async function remoteLoad(){
+  if(!hasShared()) return null;
+  try{
+    const res = await window.storage.get(SHARED_KEY, true);
+    if(res && res.value) return JSON.parse(res.value);
+  }catch(e){ /* key not found yet */ }
+  return null;
+}
+async function remoteSave(s){
+  if(!hasShared()) return;
+  try{ await window.storage.set(SHARED_KEY, JSON.stringify(s), true); }catch(e){ console.error("shared save failed", e); }
+}
+function localLoad(){
+  try{ const raw = localStorage.getItem(STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
+  return null;
+}
+function localSave(s){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(s)); }catch(e){} }
+
+/* ================= Model ================= */
+function uid(){ return Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4); }
+const DEPT_COLORS = ["#1d5c48","#c9673a","#3a7ac9","#a05fc9","#c9a84c","#5f9ea0","#c94f6d","#6b8e23","#8e6b5f","#4f7ac9","#7a5fc9"];
+
+function defaultState(){
+  const depts = [
+    {name:"Ayurveda", nameAr:"الأيورفيدا", style:"list", therapist:true, medicine:true, duration:true},
+    {name:"Panchakarma", nameAr:"بانتشاكارما", style:"list", therapist:true, medicine:true, duration:true},
+    {name:"Reflexology", nameAr:"العلاج الانعكاسي", style:"list", therapist:true, medicine:true, duration:true},
+    {name:"Naturopathy", nameAr:"الطبيعة العلاجية", style:"list", therapist:true, medicine:false, duration:false},
+    {name:"Physiotherapy", nameAr:"العلاج الطبيعي", style:"grid", therapist:true, medicine:false, duration:false},
+    {name:"Hand Rehab", nameAr:"إعادة تأهيل اليد", style:"grid", therapist:true, medicine:false, duration:false},
+    {name:"Yoga", nameAr:"يوغا", style:"list", therapist:false, medicine:false, duration:false},
+    {name:"Acupuncture", nameAr:"الوخز بالإبر", style:"list", therapist:false, medicine:false, duration:false},
+    {name:"Cupping", nameAr:"حجامة", style:"list", therapist:false, medicine:false, duration:false},
+    {name:"Speech Therapy", nameAr:"علاج النطق", style:"list", therapist:true, medicine:false, duration:false},
+    {name:"Occupational Therapy", nameAr:"العلاج الوظيفي", style:"list", therapist:true, medicine:false, duration:false}
+  ].map((d,i)=>({id:uid(), color:DEPT_COLORS[i%DEPT_COLORS.length], active:true, ...d}));
+
+  const byName = n => depts.find(d=>d.name===n).id;
+  const areas = [
+    {name:"Ayurveda Room 1", capacity:1, eligible:[byName("Ayurveda"),byName("Panchakarma")]},
+    {name:"Ayurveda Room 2", capacity:1, eligible:[byName("Ayurveda"),byName("Panchakarma")]},
+    {name:"Ayurveda Room 3", capacity:1, eligible:[byName("Ayurveda"),byName("Panchakarma")]},
+    {name:"Ayurveda Room 4", capacity:1, eligible:[byName("Ayurveda"),byName("Panchakarma")]},
+    {name:"Ayurveda Room 5 (Reflexology)", capacity:1, eligible:[byName("Ayurveda"),byName("Panchakarma"),byName("Reflexology")]},
+    {name:"Ayurveda Room 6 (Reflexology)", capacity:1, eligible:[byName("Ayurveda"),byName("Panchakarma"),byName("Reflexology")]},
+    {name:"Naturopathy Room", capacity:1, eligible:[byName("Naturopathy")]},
+    {name:"Physiotherapy Hall", capacity:8, eligible:[byName("Physiotherapy"),byName("Hand Rehab")]},
+    {name:"Yoga Hall", capacity:10, eligible:[byName("Yoga")]},
+    {name:"Acupuncture Room", capacity:2, eligible:[byName("Acupuncture")]},
+    {name:"Cupping Room", capacity:2, eligible:[byName("Cupping")]},
+    {name:"Speech Therapy Room", capacity:1, eligible:[byName("Speech Therapy")]},
+    {name:"Occupational Therapy Room", capacity:1, eligible:[byName("Occupational Therapy")]}
+  ].map(a=>({id:uid(), active:true, ...a}));
+
+  const therapists = ["Shiju","Sinan","Megha","Kamarunisa","Sharanya","Dr. Sijil","Vipin","Athul","Aysha","Sageer","Shalfa","Alvin"]
+    .map(name=>({id:uid(), name, active:true}));
+
+  return {
+    version:2,
+    updatedAt: Date.now(),
+    settings:{dayStart:"09:00", dayEnd:"18:00", lunchStart:"13:00", lunchEnd:"14:00"},
+    departments: depts,
+    areas: areas,
+    therapists: therapists,
+    patients: [],
+    appointments: []
+  };
+}
+
+let state = null;
+let operator = {name:"", dept:""};
+try{ operator = JSON.parse(localStorage.getItem("ihc_operator")||"null") || operator; }catch(e){}
+
+/* ================= Time helpers ================= */
+function toMin(t){ if(!t) return 0; const [h,m]=t.split(":").map(Number); return h*60+m; }
+function overlaps(aStart,aDur,bStart,bDur){
+  const as=toMin(aStart), ae=as+Number(aDur||0);
+  const bs=toMin(bStart), be=bs+Number(bDur||0);
+  return as < be && bs < ae;
+}
+function fmtTime12(t){
+  if(!t) return "";
+  let [h,m]=t.split(":").map(Number);
+  const ap = h>=12?"PM":"AM"; h=h%12; if(h===0) h=12;
+  return h+":"+String(m).padStart(2,'0')+ap;
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function fmtDateLabel(iso){ return new Date(iso+"T00:00:00").toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'short',year:'numeric'}); }
+
+/* ================= Accessors ================= */
+function dept(id){ return state.departments.find(d=>d.id===id); }
+function area(id){ return state.areas.find(a=>a.id===id); }
+function patient(id){ return state.patients.find(p=>p.id===id); }
+function therapist(id){ return state.therapists.find(t=>t.id===id); }
+function activeDepts(){ return state.departments.filter(d=>d.active!==false); }
+function activeAreas(){ return state.areas.filter(a=>a.active!==false); }
+function activeTherapists(){ return state.therapists.filter(t=>t.active!==false); }
+function apptsFor(date){ return state.appointments.filter(a=>a.date===date); }
+function roomSort(a,b){
+  const ra=(a.room||"").toString(), rb=(b.room||"").toString();
+  const na=parseInt(ra), nb=parseInt(rb);
+  if(!isNaN(na)&&!isNaN(nb)&&na!==nb) return na-nb;
+  return ra.localeCompare(rb);
+}
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),2200);
+}
+function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ================= Conflict engine ================= */
+// Returns {hard:[messages], soft:[messages]}
+function checkConflicts({patientId, areaId, therapistIds, date, time, duration, excludeApptId}){
+  const hard = [], soft = [];
+  const dayAppts = apptsFor(date).filter(a=>a.id!==excludeApptId);
+
+  // 1. patient double-booked (any department)
+  dayAppts.filter(a=>a.patientId===patientId).forEach(a=>{
+    if(overlaps(time,duration,a.time,a.duration)){
+      const d = dept(a.deptId);
+      hard.push(`This patient already has ${d?d.name:'a treatment'} at ${fmtTime12(a.time)} (${a.duration||'?'} min) — a patient can only be in one treatment at a time.`);
+    }
+  });
+
+  // 2. area capacity
+  if(areaId){
+    const ar = area(areaId);
+    const cap = ar ? Number(ar.capacity||1) : 1;
+    const overlapping = dayAppts.filter(a=>a.areaId===areaId && overlaps(time,duration,a.time,a.duration));
+    if(overlapping.length >= cap){
+      hard.push(`${ar?ar.name:'This area'} is already booked to capacity (${cap}) at this time — ${overlapping.length} treatment(s) already scheduled there then.`);
+    }
+  }
+
+  // 3. therapist double-booked
+  (therapistIds||[]).forEach(tid=>{
+    const clash = dayAppts.find(a=> (a.therapistIds||[]).includes(tid) && overlaps(time,duration,a.time,a.duration));
+    if(clash){
+      const t = therapist(tid), d = dept(clash.deptId), p = patient(clash.patientId);
+      hard.push(`${t?t.name:'This therapist'} is already assigned to ${p?p.name:'another patient'} (${d?d.name:''}) at ${fmtTime12(clash.time)} — can't double-book a therapist.`);
+    }
+  });
+
+  // 4. lunch break — soft
+  const {lunchStart, lunchEnd} = state.settings;
+  if(lunchStart && lunchEnd && overlaps(time,duration,lunchStart,toMin(lunchEnd)-toMin(lunchStart))){
+    soft.push(`This falls inside the lunch break (${fmtTime12(lunchStart)}–${fmtTime12(lunchEnd)}).`);
+  }
+  // 5. outside clinic hours — soft
+  const {dayStart, dayEnd} = state.settings;
+  if(toMin(time) < toMin(dayStart) || (toMin(time)+Number(duration||0)) > toMin(dayEnd)){
+    soft.push(`This is outside normal clinic hours (${fmtTime12(dayStart)}–${fmtTime12(dayEnd)}).`);
+  }
+
+  return {hard, soft};
+}
+
+/* ================= Selections ================= */
+let activeDate = todayISO();
+let currentView = "grid";
+let selectedPatientId = null;
+let ipopFilter = "all";
+let editingApptId = null;
+let editingPatientId = null;
+let printMode = "total";
+let printDeptId = null;
+let printPatientId = null;
+
+/* ================= Persist / render ================= */
+let saveTimer = null;
+function persist(){
+  state.updatedAt = Date.now();
+  localSave(state);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>remoteSave(state), 250);
+  renderAll();
+  updateSyncDot();
+}
+
+/* ================= Init / boot ================= */
+async function boot(){
+  const remote = hasShared() ? await remoteLoad() : null;
+  const local = localLoad();
+  if(remote && local){ state = remote.updatedAt >= local.updatedAt ? remote : local; }
+  else { state = remote || local || defaultState(); }
+  if(!state.version || state.version < 2){ state = defaultState(); }
+  localSave(state);
+  if(hasShared()) remoteSave(state);
+  loadSampleIfEmpty();
+  wireUI();
+  document.getElementById('activeDate').value = activeDate;
+  renderAll();
+  updateSyncDot();
+  updateOperatorLabel();
+  if(hasShared()){
+    setInterval(pullRemote, 20000);
+    window.addEventListener('focus', pullRemote);
+  }
+}
+async function pullRemote(){
+  if(!hasShared()) return;
+  const remote = await remoteLoad();
+  if(remote && remote.updatedAt && remote.updatedAt > (state.updatedAt||0)){
+    state = remote;
+    localSave(state);
+    renderAll();
+    toast("Schedule updated by another user");
+  }
+  updateSyncDot();
+}
+function updateSyncDot(){
+  const dot = document.getElementById('syncDot');
+  dot.className = 'sync-dot' + (hasShared() ? '' : ' local');
+  dot.title = hasShared() ? 'Shared — synced across everyone using this link' : 'Local only — saved on this computer/browser only';
+}
+function updateOperatorLabel(){
+  document.getElementById('operatorLabel').textContent = operator.name ? (operator.name + (operator.dept?(' · '+operator.dept):'')) : 'Set your name';
+}
+function loadSampleIfEmpty(){
+  if(state.patients.length>0) return;
+  const sample = [["203","Saleh Khder","IP"],["204","Rashid","IP"],["204","Almur Rashid","IP"],["207","Fakhera","IP"],["208","Hamida","IP"],["209","Badar","IP"],["210","Suhail","IP"],["211","Ahmed","IP"],["215","Ayidh Bakeet","IP"],["301","Fathima","IP"],["306","Jaffer","IP"],["307","Mariyam","IP"],["OP","Rineesh","OP"]];
+  sample.forEach(([room,name,type])=> state.patients.push({id:uid(), room, name, type, status:'active', notes:''}));
+}
+
+/* ================= UI wiring ================= */
+function wireUI(){
+  document.getElementById('activeDate').addEventListener('change', e=>{ activeDate=e.target.value||todayISO(); renderAll(); });
+  document.getElementById('dateBack').onclick = ()=>shiftDate(-1);
+  document.getElementById('dateFwd').onclick = ()=>shiftDate(1);
+  document.getElementById('dateToday').onclick = ()=>{ activeDate=todayISO(); document.getElementById('activeDate').value=activeDate; renderAll(); };
+  document.getElementById('btnRefresh').onclick = async ()=>{ await pullRemote(); toast('Refreshed'); };
+
+  document.getElementById('tabs').addEventListener('click', e=>{
+    const btn = e.target.closest('.tab-btn'); if(!btn) return;
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentView = btn.dataset.view;
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+currentView).classList.add('active');
+    renderAll();
+  });
+
+  document.getElementById('operatorPill').onclick = ()=>{
+    document.getElementById('opName').value = operator.name||'';
+    document.getElementById('opDept').value = operator.dept||'';
+    document.getElementById('modalOperator').classList.add('show');
+  };
+  document.getElementById('opSave').onclick = ()=>{
+    operator = {name:document.getElementById('opName').value.trim(), dept:document.getElementById('opDept').value.trim()};
+    localStorage.setItem('ihc_operator', JSON.stringify(operator));
+    document.getElementById('modalOperator').classList.remove('show');
+    updateOperatorLabel();
+    document.getElementById('cfgOperatorName').value = operator.name;
+    document.getElementById('cfgOperatorDept').value = operator.dept;
+  };
+  document.getElementById('modalOperator').addEventListener('click', e=>{ if(e.target.id==='modalOperator') document.getElementById('modalOperator').classList.remove('show'); });
+
+  // grid
+  document.getElementById('toggleIP').addEventListener('click', ()=>{
+    ipopFilter = ipopFilter==="all"?"IP":ipopFilter==="IP"?"OP":"all";
+    document.getElementById('toggleIP').textContent = "IP/OP: "+(ipopFilter==="all"?"All":ipopFilter);
+    renderGrid();
+  });
+  document.getElementById('gridSearch').addEventListener('input', renderGrid);
+  document.getElementById('btnAddPatientFromGrid').onclick = ()=>openPatientModal(null);
+
+  // patients
+  document.getElementById('btnAddPatient2').onclick = ()=>openPatientModal(null);
+  document.getElementById('patientSearch').addEventListener('input', renderPatientList);
+  document.getElementById('btnEditPatient').onclick = ()=>openPatientModal(selectedPatientId);
+  document.getElementById('btnDeletePatient').onclick = ()=>{
+    const p = patient(selectedPatientId); if(!p) return;
+    if(!confirm(`Remove ${p.name} and all their scheduled treatments?`)) return;
+    state.patients = state.patients.filter(x=>x.id!==p.id);
+    state.appointments = state.appointments.filter(x=>x.patientId!==p.id);
+    selectedPatientId = null; persist(); toast('Patient removed');
+  };
+  document.getElementById('btnAddAppt').onclick = ()=>{
+    if(!selectedPatientId){ toast('Select a patient first'); return; }
+    openApptModal(null, {patientId:selectedPatientId});
+  };
+
+  // patient modal
+  document.getElementById('pfCancel').onclick = ()=>document.getElementById('modalPatient').classList.remove('show');
+  document.getElementById('pfSave').onclick = savePatient;
+  document.getElementById('modalPatient').addEventListener('click', e=>{ if(e.target.id==='modalPatient') document.getElementById('modalPatient').classList.remove('show'); });
+
+  // appt modal
+  document.getElementById('afCancel').onclick = ()=>document.getElementById('modalAppt').classList.remove('show');
+  document.getElementById('afSave').onclick = saveAppt;
+  document.getElementById('afDelete').onclick = deleteAppt;
+  document.getElementById('afDept').addEventListener('change', ()=>{ populateAreaOptions(); updateApptFieldVisibility(); refreshConflictPreview(); });
+  ['afPatient','afArea','afDate','afTime','afDuration'].forEach(id=> document.getElementById(id).addEventListener('input', refreshConflictPreview));
+  document.getElementById('modalAppt').addEventListener('click', e=>{ if(e.target.id==='modalAppt') document.getElementById('modalAppt').classList.remove('show'); });
+
+  // resources
+  document.getElementById('btnAddArea').onclick = ()=>{
+    state.areas.push({id:uid(), name:"New Area", capacity:1, eligible:[], active:true});
+    persist();
+  };
+  document.getElementById('btnAddTherapist').onclick = ()=>{
+    state.therapists.push({id:uid(), name:"New Therapist", active:true});
+    persist();
+  };
+
+  // print center
+  document.querySelectorAll('#printModeRadio input').forEach(r=>{
+    r.addEventListener('change', ()=>{
+      printMode = r.value;
+      document.querySelectorAll('#printModeRadio label').forEach(l=>l.classList.toggle('sel', l.dataset.mode===printMode));
+      document.getElementById('printDeptSelect').style.display = printMode==='dept' ? 'block':'none';
+      document.getElementById('printPatientSelect').style.display = printMode==='patient' ? 'block':'none';
+      renderPrint();
+    });
+  });
+  document.getElementById('printDeptSelect').addEventListener('change', e=>{ printDeptId=e.target.value; renderPrint(); });
+  document.getElementById('printPatientSelect').addEventListener('change', e=>{ printPatientId=e.target.value; renderPrint(); });
+  document.getElementById('btnPrint').onclick = ()=>window.print();
+
+  // settings
+  document.getElementById('btnAddDept').onclick = ()=>{
+    state.departments.push({id:uid(), name:"New Department", nameAr:"", color:DEPT_COLORS[state.departments.length%DEPT_COLORS.length], style:"list", therapist:true, medicine:true, duration:true, active:true});
+    persist();
+  };
+  ['cfgDayStart','cfgDayEnd','cfgLunchStart','cfgLunchEnd'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', ()=>{
+      state.settings.dayStart = document.getElementById('cfgDayStart').value || state.settings.dayStart;
+      state.settings.dayEnd = document.getElementById('cfgDayEnd').value || state.settings.dayEnd;
+      state.settings.lunchStart = document.getElementById('cfgLunchStart').value || state.settings.lunchStart;
+      state.settings.lunchEnd = document.getElementById('cfgLunchEnd').value || state.settings.lunchEnd;
+      persist();
+    });
+  });
+  document.getElementById('cfgOperatorName').addEventListener('change', ()=>{
+    operator.name = document.getElementById('cfgOperatorName').value.trim();
+    localStorage.setItem('ihc_operator', JSON.stringify(operator));
+    updateOperatorLabel();
+  });
+  document.getElementById('cfgOperatorDept').addEventListener('change', ()=>{
+    operator.dept = document.getElementById('cfgOperatorDept').value.trim();
+    localStorage.setItem('ihc_operator', JSON.stringify(operator));
+    updateOperatorLabel();
+  });
+
+  document.getElementById('btnExport').onclick = exportBackup;
+  document.getElementById('btnImport').onclick = ()=>document.getElementById('importFile').click();
+  document.getElementById('importFile').addEventListener('change', importBackup);
+  document.getElementById('btnExportExcel').onclick = exportCSV;
+  document.getElementById('btnWipe').onclick = ()=>{
+    if(!confirm('Erase ALL data for everyone using this scheduler? This cannot be undone.')) return;
+    if(!confirm('Are you absolutely sure? This is permanent.')) return;
+    state = defaultState(); selectedPatientId=null; persist(); toast('All data erased');
+  };
+}
+function shiftDate(n){
+  const d = new Date(activeDate+"T00:00:00"); d.setDate(d.getDate()+n);
+  activeDate = d.toISOString().slice(0,10);
+  document.getElementById('activeDate').value = activeDate;
+  renderAll();
+}
+
+/* ================= GRID VIEW ================= */
+function renderGrid(){
+  document.getElementById('gridDateLabel').textContent = "Total Schedule — "+fmtDateLabel(activeDate);
+  const depts = activeDepts();
+  const q = (document.getElementById('gridSearch').value||"").toLowerCase();
+  let patients = state.patients.filter(p=>p.status!=='discharged');
+  if(ipopFilter!=="all") patients = patients.filter(p=>p.type===ipopFilter);
+  if(q) patients = patients.filter(p=>(p.name||"").toLowerCase().includes(q)||(p.room||"").toLowerCase().includes(q));
+  patients.sort(roomSort);
+
+  const wrap = document.querySelector('.grid-wrap');
+  if(patients.length===0){
+    wrap.innerHTML = '<div class="empty-state"><div class="big">🗓️</div>No patients match. Try clearing the search, or add a patient.</div>';
+    return;
+  }
+  if(!wrap.querySelector('table')) wrap.innerHTML = '<table class="grid" id="masterGrid"></table>';
+  const tbl = document.getElementById('masterGrid');
+
+  let html = '<thead><tr><th class="room-col">Room / Patient</th>';
+  depts.forEach(d=> html += `<th><span class="dept-th-color" style="background:${d.color}"></span>${escapeHtml(d.name)}</th>`);
+  html += '</tr></thead><tbody>';
+
+  const todays = apptsFor(activeDate);
+  patients.forEach(p=>{
+    html += `<tr><td class="room-cell"><div class="patient-name">${escapeHtml(p.name)}</div><div class="patient-room">Room ${escapeHtml(p.room||'-')} · <span class="badge ${p.type==='IP'?'badge-ip':'badge-op'}">${p.type}</span></div></td>`;
+    depts.forEach(d=>{
+      const cellAppts = todays.filter(a=>a.patientId===p.id && a.deptId===d.id).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+      html += '<td>';
+      cellAppts.forEach(a=>{
+        const ar = area(a.areaId);
+        const ths = (a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
+        html += `<div class="cell-chip" data-appt="${a.id}"><b>${fmtTime12(a.time)}</b>${ar?('<span>'+escapeHtml(ar.name)+'</span>'):''}${ths?('<span>'+escapeHtml(ths)+'</span>'):''}</div>`;
+      });
+      html += `<div class="cell-add" data-add-patient="${p.id}" data-add-dept="${d.id}">+ add</div></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+  tbl.querySelectorAll('.cell-chip').forEach(el=> el.addEventListener('click', ()=>openApptModal(el.dataset.appt)));
+  tbl.querySelectorAll('.cell-add').forEach(el=> el.addEventListener('click', ()=>openApptModal(null,{patientId:el.dataset.addPatient, deptId:el.dataset.addDept})));
+}
+
+/* ================= PATIENTS VIEW ================= */
+function renderPatientList(){
+  const q = (document.getElementById('patientSearch').value||"").toLowerCase();
+  let list = state.patients.slice().sort(roomSort);
+  if(q) list = list.filter(p=>(p.name||"").toLowerCase().includes(q)||(p.room||"").toLowerCase().includes(q));
+  const el = document.getElementById('patientList');
+  if(list.length===0){ el.innerHTML='<div class="detail-empty">No patients yet.</div>'; return; }
+  el.innerHTML = list.map(p=>`
+    <div class="patient-list-item ${p.id===selectedPatientId?'active':''}" data-id="${p.id}">
+      <div><div class="patient-name" style="font-size:12.5px;">${escapeHtml(p.name)}</div><div class="patient-room">Room ${escapeHtml(p.room||'-')}</div></div>
+      <span class="badge ${p.type==='IP'?'badge-ip':'badge-op'}">${p.status==='discharged'?'Discharged':p.type}</span>
+    </div>`).join('');
+  el.querySelectorAll('.patient-list-item').forEach(item=>{
+    item.addEventListener('click', ()=>{ selectedPatientId=item.dataset.id; renderPatientList(); renderPatientDetail(); });
+  });
+}
+function renderPatientDetail(){
+  const actions = document.getElementById('patientDetailActions');
+  const nameEl = document.getElementById('patientDetailName');
+  const body = document.getElementById('patientDetailBody');
+  const p = patient(selectedPatientId);
+  if(!p){ actions.style.display='none'; nameEl.textContent='Select a patient'; body.innerHTML='<div class="detail-empty">Choose a patient on the left, or add a new one.</div>'; return; }
+  actions.style.display='flex';
+  nameEl.innerHTML = `${escapeHtml(p.name)} <span style="font-weight:400;font-size:12.5px;color:var(--muted);">— Room ${escapeHtml(p.room||'-')}</span>`;
+  const all = state.appointments.filter(a=>a.patientId===p.id).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  const upcoming = all.filter(a=>a.date>=activeDate);
+  const past = all.filter(a=>a.date<activeDate);
+  let html = `<div class="row" style="margin-bottom:12px;"><span class="badge ${p.type==='IP'?'badge-ip':'badge-op'}">${p.type}</span>${p.status==='discharged'?'<span class="badge badge-discharged">Discharged</span>':''}</div>`;
+  if(p.notes) html += `<p class="hint" style="margin-bottom:12px;">${escapeHtml(p.notes)}</p>`;
+  html += '<h3 style="font-size:13.5px;color:var(--teal-dark);margin:0 0 8px;">Treatments from '+fmtDateLabel(activeDate)+' onward</h3>';
+  if(upcoming.length===0) html += '<p class="hint">No treatments scheduled from this date.</p>';
+  upcoming.forEach(a=> html += apptCardHtml(a));
+  if(past.length){
+    html += '<h3 style="font-size:13.5px;color:var(--muted);margin:18px 0 8px;">Earlier</h3>';
+    past.slice(-8).reverse().forEach(a=> html += apptCardHtml(a));
+  }
+  body.innerHTML = html;
+  body.querySelectorAll('[data-appt-edit]').forEach(el=> el.addEventListener('click', ()=>openApptModal(el.dataset.apptEdit)));
+}
+function apptCardHtml(a){
+  const d = dept(a.deptId); if(!d) return '';
+  const ar = area(a.areaId);
+  const ths = (a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
+  return `<div class="appt-card" data-appt-edit="${a.id}" style="border-left-color:${d.color};">
+    <div>
+      <span class="appt-time">${fmtTime12(a.time)}</span> · <span class="appt-dept">${escapeHtml(d.name)}</span>
+      ${a.date!==activeDate?` · <span style="color:var(--muted);">${a.date}</span>`:''}
+      <div class="appt-meta">${ar?('Room: '+escapeHtml(ar.name)+'  '):''}${ths?('· Therapist: '+escapeHtml(ths)+'  '):''}${a.duration?('· '+a.duration+' min '):''}${a.medicine?('· '+escapeHtml(a.medicine)):''}</div>
+    </div></div>`;
+}
+
+/* ================= RESOURCES: AREAS + THERAPISTS ================= */
+function renderAreaEditor(){
+  const el = document.getElementById('areaEditor');
+  el.innerHTML = state.areas.map(a=>`
+    <div class="cfg-row" data-id="${a.id}">
+      <input type="text" data-field="name" value="${escapeHtml(a.name)}" style="flex:2;">
+      <div class="field" style="flex:0 0 auto;"><label style="margin:0;">Cap.</label><input type="number" data-field="capacity" min="1" value="${a.capacity||1}"></div>
+      <label class="chk-inline"><input type="checkbox" data-field="active" ${a.active!==false?'checked':''}>Active</label>
+      <button class="btn btn-danger btn-sm" data-del="1">✕</button>
+      <div class="chip-multi" style="flex-basis:100%;">
+        ${state.departments.map(d=>`<label><input type="checkbox" data-elig="${d.id}" ${((a.eligible||[]).includes(d.id))?'checked':''}>${escapeHtml(d.name)}</label>`).join('')}
+      </div>
+    </div>`).join('');
+  el.querySelectorAll('.cfg-row').forEach(row=>{
+    const id = row.dataset.id;
+    row.querySelectorAll('[data-field]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const a = area(id); if(!a) return;
+        const f = inp.dataset.field;
+        a[f] = inp.type==='checkbox' ? inp.checked : (inp.type==='number' ? Number(inp.value||1) : inp.value);
+        save_();
+      });
+    });
+    row.querySelectorAll('[data-elig]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const a = area(id); if(!a) return;
+        a.eligible = a.eligible || [];
+        if(cb.checked){ if(!a.eligible.includes(cb.dataset.elig)) a.eligible.push(cb.dataset.elig); }
+        else { a.eligible = a.eligible.filter(x=>x!==cb.dataset.elig); }
+        save_();
+      });
+    });
+    row.querySelector('[data-del]').addEventListener('click', ()=>{
+      if(!confirm('Delete this area? Treatments booked in it will keep their time but lose the room link.')) return;
+      state.areas = state.areas.filter(x=>x.id!==id);
+      persist();
+    });
+  });
+}
+function renderTherapistEditor(){
+  const el = document.getElementById('therapistEditor');
+  el.innerHTML = state.therapists.map(t=>`
+    <div class="cfg-row" data-id="${t.id}">
+      <input type="text" data-field="name" value="${escapeHtml(t.name)}">
+      <label class="chk-inline"><input type="checkbox" data-field="active" ${t.active!==false?'checked':''}>Active</label>
+      <button class="btn btn-danger btn-sm" data-del="1">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.cfg-row').forEach(row=>{
+    const id = row.dataset.id;
+    row.querySelectorAll('[data-field]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const t = therapist(id); if(!t) return;
+        t[inp.dataset.field] = inp.type==='checkbox'?inp.checked:inp.value;
+        save_();
+      });
+    });
+    row.querySelector('[data-del]').addEventListener('click', ()=>{
+      if(!confirm('Remove this therapist?')) return;
+      state.therapists = state.therapists.filter(x=>x.id!==id);
+      persist();
+    });
+  });
+}
+function save_(){ persist(); }
+
+/* ================= PRINT CENTER ================= */
+function renderPrint(){
+  document.getElementById('printDateLabel').textContent = fmtDateLabel(activeDate);
+  const deptSel = document.getElementById('printDeptSelect');
+  deptSel.innerHTML = activeDepts().map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+  if(!printDeptId || !dept(printDeptId)) printDeptId = activeDepts()[0]?.id||null;
+  deptSel.value = printDeptId;
+
+  const patSel = document.getElementById('printPatientSelect');
+  const activePatients = state.patients.filter(p=>p.status!=='discharged').sort(roomSort);
+  patSel.innerHTML = activePatients.map(p=>`<option value="${p.id}">${escapeHtml(p.name)} (Room ${escapeHtml(p.room||'-')})</option>`).join('');
+  if(!printPatientId || !patient(printPatientId)) printPatientId = activePatients[0]?.id||null;
+  patSel.value = printPatientId;
+
+  const body = document.getElementById('printBody');
+  if(printMode==='total') body.innerHTML = renderTotalPrint();
+  else if(printMode==='dept') body.innerHTML = renderDeptPrint(printDeptId);
+  else body.innerHTML = renderPatientPrint(printPatientId);
+}
+function renderTotalPrint(){
+  const depts = activeDepts();
+  const patients = state.patients.filter(p=>p.status!=='discharged').sort(roomSort);
+  const todays = apptsFor(activeDate);
+  let html = `<div class="dept-title-bar"><span>TOTAL SCHEDULE — ${fmtDateLabel(activeDate)}</span></div>`;
+  if(patients.length===0) return html+'<div class="empty-state">No patients.</div>';
+  html += '<table class="print-table"><thead><tr><th>Room</th><th>Name</th>' + depts.map(d=>`<th>${escapeHtml(d.name)}</th>`).join('') + '</tr></thead><tbody>';
+  patients.forEach(p=>{
+    html += `<tr><td>${escapeHtml(p.room||'-')}</td><td>${escapeHtml(p.name)}</td>`;
+    depts.forEach(d=>{
+      const cell = todays.filter(a=>a.patientId===p.id && a.deptId===d.id).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+      html += `<td>${cell.map(a=>fmtTime12(a.time)).join('<br>')}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+function renderDeptPrint(deptId){
+  const d = dept(deptId);
+  if(!d) return '<div class="empty-state">No departments yet.</div>';
+  let rows = state.appointments.filter(a=>a.deptId===d.id && a.date===activeDate).map(a=>({...a, p:patient(a.patientId), ar:area(a.areaId)})).filter(r=>r.p);
+  rows.sort((a,b)=>roomSort(a.p,b.p) || (a.time||"").localeCompare(b.time||""));
+  let html = `<div class="dept-title-bar"><span>${escapeHtml(d.name).toUpperCase()} — ${fmtDateLabel(activeDate)}</span><span style="font-size:11.5px;font-weight:400;">${rows.length} scheduled</span></div>`;
+  if(rows.length===0) return html+'<div class="empty-state">No treatments scheduled for this department.</div>';
+  if(d.style==='list'){
+    html += '<table class="print-table"><thead><tr><th>Room</th><th>Name</th><th>Time</th><th>Area</th>'
+      + (d.duration?'<th>Duration</th>':'') + (d.therapist?'<th>Therapist</th>':'') + (d.medicine?'<th>Treatment / Medicine</th>':'') + '</tr></thead><tbody>';
+    rows.forEach(r=>{
+      const ths = (r.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
+      html += `<tr><td>${escapeHtml(r.p.room||'-')}</td><td>${escapeHtml(r.p.name)}</td><td>${fmtTime12(r.time)}</td><td>${r.ar?escapeHtml(r.ar.name):''}</td>`
+        + (d.duration?`<td>${r.duration?r.duration+' mins':''}</td>`:'')
+        + (d.therapist?`<td>${escapeHtml(ths)}</td>`:'')
+        + (d.medicine?`<td>${escapeHtml(r.medicine||'')}</td>`:'')
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+  } else {
+    const times = Array.from(new Set(rows.map(r=>r.time))).sort();
+    const byPatient = {};
+    rows.forEach(r=>{ if(!byPatient[r.p.id]) byPatient[r.p.id]={p:r.p,cells:{}}; byPatient[r.p.id].cells[r.time]=r; });
+    html += '<table class="print-table"><thead><tr><th>Room</th><th>Patient</th>' + times.map(t=>`<th>${fmtTime12(t)}</th>`).join('') + '</tr></thead><tbody>';
+    Object.values(byPatient).sort((a,b)=>roomSort(a.p,b.p)).forEach(row=>{
+      html += `<tr><td>${escapeHtml(row.p.room||'-')}</td><td>${escapeHtml(row.p.name)}</td>`;
+      times.forEach(t=>{
+        const r = row.cells[t];
+        const ths = r?(r.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', '):'';
+        html += `<td>${r?escapeHtml(ths||'✓'):''}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+  return html;
+}
+function renderPatientPrint(patientId){
+  const p = patient(patientId);
+  if(!p) return '<div class="empty-state">No patients yet.</div>';
+  const rows = state.appointments.filter(a=>a.patientId===p.id && a.date===activeDate).sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+  let html = `<div class="patient-print-header">
+      <h2>IRINE HEALTH CITY</h2>
+      <div style="font-size:12.5px;color:var(--muted);">TREATMENT SCHEDULE</div>
+    </div>
+    <div class="print-meta-row"><span>NAME: ${escapeHtml(p.name.toUpperCase())}</span><span>ROOM: ${escapeHtml(p.room||'-')}</span><span>DATE: ${activeDate.split('-').reverse().join('/')}</span></div>`;
+  if(rows.length===0){ html += '<div class="empty-state">No treatments scheduled for this patient on this date.</div>'; return html; }
+  html += '<table class="print-table"><thead><tr><th>SL.No</th><th>Time / وقت</th><th>Session / الجلسات</th><th>Duration</th><th>Details</th></tr></thead><tbody>';
+  rows.forEach((a,i)=>{
+    const d = dept(a.deptId);
+    const end = toMin(a.time)+Number(a.duration||0);
+    const endH = String(Math.floor(end/60)).padStart(2,'0'), endM = String(end%60).padStart(2,'0');
+    const ths = (a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
+    html += `<tr><td>${i+1}.</td><td>${fmtTime12(a.time)}${a.duration?('–'+fmtTime12(endH+':'+endM)):''}</td>
+      <td><b>${escapeHtml(d?d.name.toUpperCase():'')}</b>${d&&d.nameAr?('<div class="ar">'+escapeHtml(d.nameAr)+'</div>'):''}</td>
+      <td>${a.duration?a.duration+' min':''}</td>
+      <td>${ths?('Therapist: '+escapeHtml(ths)+'<br>'):''}${a.medicine?escapeHtml(a.medicine):''}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+/* ================= SETTINGS: DEPTS ================= */
+function renderDeptEditor(){
+  const el = document.getElementById('deptListEditor');
+  el.innerHTML = state.departments.map(d=>`
+    <div class="cfg-row" data-id="${d.id}">
+      <input type="color" data-field="color" value="${d.color}" style="width:34px;padding:2px;">
+      <input type="text" data-field="name" value="${escapeHtml(d.name)}" placeholder="Name">
+      <input type="text" data-field="nameAr" value="${escapeHtml(d.nameAr||'')}" placeholder="Arabic name (optional)" style="direction:rtl;">
+      <select data-field="style"><option value="list" ${d.style==='list'?'selected':''}>List</option><option value="grid" ${d.style==='grid'?'selected':''}>Grid</option></select>
+      <label class="chk-inline"><input type="checkbox" data-field="therapist" ${d.therapist?'checked':''}>Therapist</label>
+      <label class="chk-inline"><input type="checkbox" data-field="medicine" ${d.medicine?'checked':''}>Medicine/Notes</label>
+      <label class="chk-inline"><input type="checkbox" data-field="duration" ${d.duration?'checked':''}>Duration</label>
+      <label class="chk-inline"><input type="checkbox" data-field="active" ${d.active!==false?'checked':''}>Active</label>
+      <button class="btn btn-danger btn-sm" data-del="1">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.cfg-row').forEach(row=>{
+    const id = row.dataset.id;
+    row.querySelectorAll('[data-field]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const d = dept(id); if(!d) return;
+        d[inp.dataset.field] = inp.type==='checkbox'?inp.checked:inp.value;
+        save_();
+      });
+    });
+    row.querySelector('[data-del]').addEventListener('click', ()=>{
+      if(!confirm('Delete this department? Scheduled treatments under it will also be removed.')) return;
+      state.departments = state.departments.filter(x=>x.id!==id);
+      state.appointments = state.appointments.filter(x=>x.deptId!==id);
+      persist();
+    });
+  });
+}
+function renderSettingsMisc(){
+  document.getElementById('cfgDayStart').value = state.settings.dayStart;
+  document.getElementById('cfgDayEnd').value = state.settings.dayEnd;
+  document.getElementById('cfgLunchStart').value = state.settings.lunchStart;
+  document.getElementById('cfgLunchEnd').value = state.settings.lunchEnd;
+  document.getElementById('cfgOperatorName').value = operator.name||'';
+  document.getElementById('cfgOperatorDept').value = operator.dept||'';
+  document.getElementById('storageModeHint').textContent = hasShared()
+    ? "This session is connected to shared storage: everyone opening this same scheduler link sees the same data (synced automatically, and every ~20 seconds)."
+    : "This copy is running standalone in your browser: data is saved only on this computer. Use Export/Import below to move it to another computer, or ask about setting up shared access.";
+  updateStorageStat();
+}
+function updateStorageStat(){
+  document.getElementById('storageStat').textContent = `Storing ${state.patients.length} patients, ${state.appointments.length} treatments, ${state.areas.length} areas, ${state.therapists.length} therapists, ${state.departments.length} departments.`;
+}
+
+/* ================= DATA I/O ================= */
+function exportBackup(){
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `IrineHealthCity_Scheduler_Backup_${todayISO()}.json`;
+  a.click();
+  toast('Backup downloaded');
+}
+function importBackup(e){
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed.departments || !parsed.patients || !parsed.appointments) throw new Error('bad shape');
+      if(!confirm('Importing will replace all current data with the backup file. Continue?')) return;
+      state = parsed;
+      persist();
+      toast('Backup imported');
+    }catch(err){ alert('This file could not be read as a scheduler backup.'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+function exportCSV(){
+  const rows = [["Room","Patient","Type","Department","Area","Time","Duration (min)","Therapist","Treatment/Medicine"]];
+  const todays = apptsFor(activeDate).slice().sort((a,b)=>{
+    const pa=patient(a.patientId), pb=patient(b.patientId);
+    return (pa&&pb?roomSort(pa,pb):0) || (a.time||"").localeCompare(b.time||"");
+  });
+  todays.forEach(a=>{
+    const p=patient(a.patientId), d=dept(a.deptId), ar=area(a.areaId);
+    if(!p||!d) return;
+    const ths=(a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join('; ');
+    rows.push([p.room||'',p.name||'',p.type||'',d.name||'',ar?ar.name:'',fmtTime12(a.time),a.duration||'',ths,a.medicine||'']);
+  });
+  const csv = rows.map(r=>r.map(v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}).join(',')).join('\n');
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `Schedule_${activeDate}.csv`; a.click();
+}
+
+/* ================= MODAL: PATIENT ================= */
+function openPatientModal(id){
+  editingPatientId = id;
+  const p = id ? patient(id) : null;
+  document.getElementById('modalPatientTitle').textContent = p ? 'Edit Patient' : 'Add Patient';
+  document.getElementById('pfRoom').value = p?p.room||'':'';
+  document.getElementById('pfName').value = p?p.name||'':'';
+  document.getElementById('pfType').value = p?p.type||'IP':'IP';
+  document.getElementById('pfStatus').value = p?p.status||'active':'active';
+  document.getElementById('pfNotes').value = p?p.notes||'':'';
+  document.getElementById('modalPatient').classList.add('show');
+  document.getElementById('pfName').focus();
+}
+function savePatient(){
+  const name = document.getElementById('pfName').value.trim();
+  if(!name){ alert('Please enter a patient name.'); return; }
+  const data = {room:document.getElementById('pfRoom').value.trim(), name, type:document.getElementById('pfType').value, status:document.getElementById('pfStatus').value, notes:document.getElementById('pfNotes').value.trim()};
+  if(editingPatientId){ Object.assign(patient(editingPatientId), data); }
+  else { const np={id:uid(), ...data}; state.patients.push(np); selectedPatientId=np.id; }
+  document.getElementById('modalPatient').classList.remove('show');
+  persist(); toast('Patient saved');
+}
+
+/* ================= MODAL: APPOINTMENT ================= */
+function openApptModal(id, prefill){
+  editingApptId = id||null;
+  const a = id ? state.appointments.find(x=>x.id===id) : null;
+  document.getElementById('modalApptTitle').textContent = a ? 'Edit Treatment' : 'Add Treatment';
+
+  const patSel = document.getElementById('afPatient');
+  patSel.innerHTML = state.patients.filter(p=>p.status!=='discharged').sort(roomSort).map(p=>`<option value="${p.id}">${escapeHtml(p.name)} (Room ${escapeHtml(p.room||'-')})</option>`).join('');
+  const deptSel = document.getElementById('afDept');
+  deptSel.innerHTML = activeDepts().map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+
+  patSel.value = a?a.patientId:((prefill&&prefill.patientId)||patSel.value);
+  deptSel.value = a?a.deptId:((prefill&&prefill.deptId)||deptSel.value);
+
+  populateAreaOptions();
+  document.getElementById('afArea').value = a?a.areaId||'':'';
+
+  document.getElementById('afDate').value = a?a.date:activeDate;
+  document.getElementById('afTime').value = a?a.time:'09:00';
+  document.getElementById('afDuration').value = a?String(a.duration||45):'45';
+  document.getElementById('afMedicine').value = a?a.medicine||'':'';
+
+  populateTherapistChips(a?a.therapistIds||[]:[]);
+  updateApptFieldVisibility();
+
+  document.getElementById('afDelete').style.display = a ? 'inline-flex':'none';
+  document.getElementById('conflictArea').innerHTML = '';
+  document.getElementById('modalAppt').classList.add('show');
+  refreshConflictPreview();
+}
+function populateAreaOptions(){
+  const deptId = document.getElementById('afDept').value;
+  const sel = document.getElementById('afArea');
+  const eligible = activeAreas().filter(ar => !ar.eligible || ar.eligible.length===0 || ar.eligible.includes(deptId));
+  const list = eligible.length ? eligible : activeAreas();
+  sel.innerHTML = '<option value="">— No specific room —</option>' + list.map(ar=>`<option value="${ar.id}">${escapeHtml(ar.name)} (cap ${ar.capacity||1})</option>`).join('');
+}
+function populateTherapistChips(selectedIds){
+  const wrap = document.getElementById('afTherapistChips');
+  wrap.innerHTML = activeTherapists().map(t=>`<label><input type="checkbox" value="${t.id}" ${selectedIds.includes(t.id)?'checked':''}>${escapeHtml(t.name)}</label>`).join('');
+  wrap.querySelectorAll('input').forEach(cb=> cb.addEventListener('change', refreshConflictPreview));
+}
+function getSelectedTherapistIds(){
+  return Array.from(document.querySelectorAll('#afTherapistChips input:checked')).map(cb=>cb.value);
+}
+function updateApptFieldVisibility(){
+  const d = dept(document.getElementById('afDept').value);
+  document.getElementById('afTherapistWrap').style.display = (d&&d.therapist)?'block':'none';
+  document.getElementById('afMedicineWrap').style.display = (d&&d.medicine)?'block':'none';
+}
+function currentApptFormValues(){
+  return {
+    patientId: document.getElementById('afPatient').value,
+    deptId: document.getElementById('afDept').value,
+    areaId: document.getElementById('afArea').value || null,
+    therapistIds: getSelectedTherapistIds(),
+    date: document.getElementById('afDate').value || activeDate,
+    time: document.getElementById('afTime').value || '09:00',
+    duration: Number(document.getElementById('afDuration').value||45)
+  };
+}
+function refreshConflictPreview(){
+  const v = currentApptFormValues();
+  const {hard, soft} = checkConflicts({...v, excludeApptId: editingApptId});
+  const box = document.getElementById('conflictArea');
+  let html = '';
+  if(hard.length){
+    html += `<div class="conflict-box"><b>⚠ This booking conflicts:</b><ul>${hard.map(m=>`<li>${escapeHtml(m)}</li>`).join('')}</ul>
+      <div class="override-row"><input type="checkbox" id="afOverride"><label for="afOverride">I understand — save anyway</label></div></div>`;
+  }
+  if(soft.length){
+    html += `<div class="soft-warn-box">${soft.map(m=>'⏰ '+escapeHtml(m)).join('<br>')}</div>`;
+  }
+  box.innerHTML = html;
+}
+function saveAppt(){
+  const v = currentApptFormValues();
+  if(!v.patientId || !v.deptId){ alert('Please choose a patient and department.'); return; }
+  const {hard} = checkConflicts({...v, excludeApptId: editingApptId});
+  if(hard.length){
+    const overrideBox = document.getElementById('afOverride');
+    if(!overrideBox || !overrideBox.checked){
+      toast('Resolve the conflict, or tick "save anyway"');
+      return;
+    }
+  }
+  const data = {...v, medicine: document.getElementById('afMedicine').value.trim(), createdBy: operator.name||''};
+  if(editingApptId){ Object.assign(state.appointments.find(x=>x.id===editingApptId), data); }
+  else { state.appointments.push({id:uid(), ...data}); }
+  document.getElementById('modalAppt').classList.remove('show');
+  persist(); toast('Treatment saved');
+}
+function deleteAppt(){
+  if(!editingApptId) return;
+  if(!confirm('Delete this scheduled treatment?')) return;
+  state.appointments = state.appointments.filter(x=>x.id!==editingApptId);
+  document.getElementById('modalAppt').classList.remove('show');
+  persist(); toast('Treatment deleted');
+}
+
+/* ================= MASTER RENDER ================= */
+function renderAll(){
+  if(!state) return;
+  if(currentView==='grid') renderGrid();
+  if(currentView==='patients'){ renderPatientList(); renderPatientDetail(); }
+  if(currentView==='resources'){ renderAreaEditor(); renderTherapistEditor(); }
+  if(currentView==='print') renderPrint();
+  if(currentView==='settings'){ renderDeptEditor(); renderSettingsMisc(); }
+}
+
+boot();
+})();
+</script>
+</body>
+</html>
