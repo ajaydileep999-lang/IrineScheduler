@@ -157,6 +157,8 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
   body{background:#fff;}
   .container{padding:0;max-width:100%;}
   .panel{border:none;box-shadow:none;}
+}
+
 .medicine-suggestions {
   position: relative;
   z-index: 1000;
@@ -189,9 +191,77 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
 .medicine-suggestion:last-child {
   border-bottom: 0;
 }
+
+
+/* ================= LOGIN SCREEN ================= */
+body.login-locked .topbar,
+body.login-locked .container { display:none !important; }
+.login-screen{
+  position:fixed; inset:0; z-index:10000;
+  display:flex; align-items:center; justify-content:center;
+  padding:28px;
+  background:linear-gradient(135deg,#f7f5ef 0%,#ffffff 55%,#f1eee6 100%);
+}
+.login-screen::before{
+  content:""; position:absolute; inset:0;
+  background:linear-gradient(135deg,rgba(18,73,57,.05),transparent 45%,rgba(201,159,58,.06));
+  pointer-events:none;
+}
+.login-card{
+  position:relative; z-index:1;
+  width:min(500px,100%);
+  background:#fff;
+  border:1px solid rgba(18,73,57,.10);
+  border-top:5px solid var(--gold);
+  border-radius:14px;
+  box-shadow:0 18px 45px rgba(0,0,0,.14);
+  padding:42px 44px 36px;
+}
+.login-brand{text-align:center;margin-bottom:28px;}
+.login-brand h1{margin:0;color:var(--teal-dark);font-size:28px;letter-spacing:.8px;text-transform:uppercase;}
+.login-brand p{margin:7px 0 0;color:var(--gold);font-size:15px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;}
+.login-title{position:relative;text-align:center;font-size:18px;color:var(--teal-dark);margin:0 0 25px;font-weight:700;}
+.login-title::before,.login-title::after{content:"";display:inline-block;width:105px;height:1px;background:var(--line);vertical-align:middle;margin:0 16px;}
+.login-field{margin-bottom:18px;}
+.login-field label{text-transform:none;letter-spacing:0;font-size:13px;color:var(--teal-dark);margin-bottom:7px;font-weight:700;}
+.login-field input{font-size:15px;padding:13px 14px;border-radius:7px;border:1px solid #d7ddd9;}
+.login-field input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(18,73,57,.08);outline:none;}
+.login-btn{width:100%;justify-content:center;padding:13px 15px;font-size:14px;margin-top:5px;min-height:46px;}
+.login-error{display:none;margin:0 0 14px;padding:10px 12px;border-radius:7px;background:var(--danger-bg);color:var(--danger);font-size:12px;font-weight:600;}
+.login-error.show{display:block;}
+.login-footer{text-align:center;color:var(--muted);font-size:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--line);}
+.login-loading{opacity:.65;pointer-events:none;}
+@media(max-width:620px){.login-card{padding:32px 24px 28px;}.login-brand h1{font-size:23px;}.login-title::before,.login-title::after{width:45px;margin:0 9px;}}
+
 </style>
 </head>
-<body>
+<body class="login-locked">
+
+
+
+<!-- Login screen: staff enter login name and password; no email is shown. -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-brand">
+      <h1>Irine HealthCity</h1>
+      <p>Treatment Scheduler</p>
+    </div>
+    <h2 class="login-title">Staff Login</h2>
+    <div class="login-error" id="loginError"></div>
+    <form id="loginForm" autocomplete="on">
+      <div class="login-field">
+        <label for="loginUsername">Login Name</label>
+        <input type="text" id="loginUsername" autocomplete="username" placeholder="Enter your login name" required>
+      </div>
+      <div class="login-field">
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" placeholder="Enter your password" required>
+      </div>
+      <button class="btn btn-primary login-btn" id="loginBtn" type="submit">LOGIN</button>
+    </form>
+    <div class="login-footer">Authorized staff only</div>
+  </div>
+</div>
 
 <div class="topbar no-print">
   <div class="brand">
@@ -212,7 +282,7 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
       <button class="icon-btn" id="dateFwd">›</button>
       <button class="icon-btn" id="dateToday" title="Jump to today">●</button>
     </div>
-    <div class="operator-pill" id="operatorPill" title="Click to change who is scheduling"><span class="sync-dot" id="syncDot"></span><span id="operatorLabel">Set your name</span></div>
+    <div class="operator-pill" id="operatorPill" title="Logged-in user — click to log out"><span class="sync-dot" id="syncDot"></span><span id="operatorLabel">Not signed in</span></div>
     <button class="icon-btn" id="btnRefresh" title="Refresh from shared data">⟳</button>
   </div>
 </div>
@@ -342,11 +412,11 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
         </div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h2>Who's scheduling</h2></div>
+        <div class="panel-head"><h2>Authorized Login Users</h2></div>
         <div class="panel-body">
-          <div class="field"><label>Your name</label><input type="text" id="cfgOperatorName" placeholder="e.g. Sinan"></div>
-          <div class="field" style="margin-top:8px;"><label>Your department</label><input type="text" id="cfgOperatorDept" placeholder="e.g. Ayurveda"></div>
-          <p class="hint">This is attached to bookings you make so it's clear who scheduled what — it isn't a password-protected login.</p>
+          <div id="authorizedUserEditor"></div>
+          <button class="btn btn-primary btn-sm" id="btnAddAuthorizedUser" style="margin-top:6px;">+ Add HOD / RMO</button>
+          <p class="hint">These are login users only. They do <strong>not</strong> appear in the Therapist list or treatment grid. The Firebase Authentication account must also exist with the same login name.</p>
         </div>
       </div>
     </div>
@@ -477,6 +547,10 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
     </div>
     <div class="field" id="afTherapistWrap"><label>Therapist(s)</label><div class="chip-multi" id="afTherapistChips"></div></div>
     <div class="field" id="afMedicineWrap"><label>Treatment / Medicine / Notes</label><textarea id="afMedicine" rows="2" placeholder="e.g. Kottamchukkadi Tailam + Dhanwantaram Tailam"></textarea><div id="medicineSuggestions" class="medicine-suggestions"></div></div>
+    <div id="apptStaffMeta" style="margin:10px 0 4px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:12.5px;color:var(--muted);line-height:1.65;display:none;">
+      <div><strong>Scheduled by:</strong> <span id="apptCreatedBy">—</span></div>
+      <div><strong>Last updated by:</strong> <span id="apptUpdatedBy">—</span></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="afDelete" style="margin-right:auto;display:none;">Delete</button>
       <button class="btn btn-outline" id="afCancel">Cancel</button>
@@ -485,20 +559,10 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
   </div>
 </div>
 
-<!-- Modal: Operator -->
-<div class="overlay" id="modalOperator">
-  <div class="modal">
-    <h3>Who's scheduling?</h3>
-    <div class="field"><label>Your name</label><input type="text" id="opName" placeholder="e.g. Sinan"></div>
-    <div class="field" style="margin-top:8px;"><label>Your department</label><input type="text" id="opDept" placeholder="e.g. Ayurveda"></div>
-    <div class="modal-actions"><button class="btn btn-primary" id="opSave">Save</button></div>
-  </div>
-</div>
-
 <div id="toast"></div>
 
 <script type="module">
-import { db } from "./js/firebase.js";
+import { db, auth } from "./js/firebase.js";
 
 import {
   doc,
@@ -507,8 +571,127 @@ import {
   onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
+import {
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+  signOut
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+
+
 (function(){
 "use strict";
+
+/* ================= Authentication =================
+   Staff enter only a login name. Internally it maps to a Firebase
+   Email/Password account such as sinan@staff.irinehealthcity.local.
+   No staff member needs to type an email address. */
+function staffLoginEmail(username){
+  return username.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') + '@staff.irinehealthcity.local';
+}
+
+const loginScreen = document.getElementById('loginScreen');
+const loginForm = document.getElementById('loginForm');
+const loginBtn = document.getElementById('loginBtn');
+const loginError = document.getElementById('loginError');
+
+function showLoginError(msg){
+  loginError.textContent = msg;
+  loginError.classList.add('show');
+}
+function clearLoginError(){
+  loginError.textContent = '';
+  loginError.classList.remove('show');
+}
+async function findAuthorizedProfile(username){
+  const key = username.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
+  try{
+    const snap = await getDoc(doc(db, "scheduler", "main"));
+    const schedule = snap.exists() ? snap.data().schedule : null;
+    const users = Array.isArray(schedule?.authorizedUsers) ? schedule.authorizedUsers : [];
+    if(!users.length) {
+      // Backward-compatible first login for the existing test account.
+      if(key === 'test') return {id:'login_test', login:'test', name:'Test User', role:'RMO', active:true};
+      return null;
+    }
+    return users.find(u => (u.login||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'')===key && u.active!==false) || null;
+  }catch(e){
+    console.error('Authorized-user lookup failed:', e);
+    return null;
+  }
+}
+function unlockApp(user, profile){
+  document.body.classList.remove('login-locked');
+  loginScreen.style.display='none';
+  window.currentFirebaseUser = user;
+  window.currentStaffProfile = profile || null;
+  updateOperatorFromAuth(user, profile);
+}
+function updateOperatorFromAuth(user, profile){
+  if(!user) return;
+  const username = (user.email||'').split('@')[0];
+  operator = {
+    name: profile?.name || username,
+    dept: '',
+    role: profile?.role || ''
+  };
+  try{ localStorage.setItem('ihc_operator', JSON.stringify(operator)); }catch(e){}
+  if(typeof updateOperatorLabel==='function') updateOperatorLabel();
+}
+
+loginForm.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  clearLoginError();
+  const username=document.getElementById('loginUsername').value.trim();
+  const password=document.getElementById('loginPassword').value;
+  if(!username || !password){ showLoginError('Please enter your login name and password.'); return; }
+  loginBtn.classList.add('login-loading');
+  loginBtn.textContent='SIGNING IN…';
+  try{
+    // Authenticate with Firebase first. Authorization/profile lookup happens only
+    // after authentication, so Firestore read rules cannot block the login itself.
+    const cred=await signInWithEmailAndPassword(auth, staffLoginEmail(username), password);
+    let profile = await findAuthorizedProfile(username);
+
+    // Existing test account remains available for local testing.
+    if(!profile && username.trim().toLowerCase()==='test'){
+      profile = {id:'login_test', login:'test', name:'Test User', role:'RMO', active:true};
+    }
+
+    // If a configured user list exists and this account is not listed, block it.
+    // If the list cannot yet be read, allow the authenticated account to proceed;
+    // the HOD/RMO management screen can configure it afterward.
+    unlockApp(cred.user, profile || {
+      id:'firebase_'+cred.user.uid,
+      login:username.trim().toLowerCase(),
+      name:username.trim(),
+      role:'RMO',
+      active:true
+    });
+    document.getElementById('loginPassword').value='';
+  }catch(err){
+    console.error('Login error:',err);
+    let msg='Login failed. Please check your login name and password.';
+    if(err.code==='auth/too-many-requests') msg='Too many failed attempts. Please try again later.';
+    showLoginError(msg);
+  }finally{
+    loginBtn.classList.remove('login-loading');
+    loginBtn.textContent='LOGIN';
+  }
+});
+
+onAuthStateChanged(auth, async user=>{
+  if(user){
+    const username = (user.email||'').split('@')[0];
+    const profile = await findAuthorizedProfile(username);
+    unlockApp(user, profile);
+  } else {
+    window.currentFirebaseUser = null;
+    window.currentStaffProfile = null;
+    document.body.classList.add('login-locked');
+    loginScreen.style.display='flex';
+  }
+});
+
 
 /* ================= Storage abstraction: shared (window.storage) with localStorage fallback ================= */
 const STORE_KEY = "ihc_scheduler_v2";
@@ -596,7 +779,10 @@ function defaultState(){
     areas: areas,
     therapists: therapists,
     patients: [],
-    appointments: []
+    appointments: [],
+    authorizedUsers: [
+      {id:"login_test", login:"test", name:"Test User", role:"RMO", active:true}
+    ]
   };
 }
 
@@ -722,6 +908,9 @@ const remote = await remoteLoad();
   if(remote && local){ state = remote.updatedAt >= local.updatedAt ? remote : local; }
   else { state = remote || local || defaultState(); }
   if(!state.version || state.version < 2){ state = defaultState(); }
+  if(!Array.isArray(state.authorizedUsers)){
+    state.authorizedUsers = [{id:"login_test", login:"test", name:"Test User", role:"RMO", active:true}];
+  }
   localSave(state);
   await remoteSave(state);
 
@@ -772,7 +961,7 @@ function updateSyncDot(){
   dot.title = hasShared() ? 'Shared — synced across everyone using this link' : 'Local only — saved on this computer/browser only';
 }
 function updateOperatorLabel(){
-  document.getElementById('operatorLabel').textContent = operator.name ? (operator.name + (operator.dept?(' · '+operator.dept):'')) : 'Set your name';
+  document.getElementById('operatorLabel').textContent = operator.name ? operator.name : 'Not signed in';
 }
 function loadSampleIfEmpty(){
   if(state.patients.length>0) return;
@@ -798,20 +987,9 @@ function wireUI(){
     renderAll();
   });
 
-  document.getElementById('operatorPill').onclick = ()=>{
-    document.getElementById('opName').value = operator.name||'';
-    document.getElementById('opDept').value = operator.dept||'';
-    document.getElementById('modalOperator').classList.add('show');
+  document.getElementById('operatorPill').onclick = async ()=>{
+    if(confirm('Log out of the scheduler?')){ await signOut(auth); }
   };
-  document.getElementById('opSave').onclick = ()=>{
-    operator = {name:document.getElementById('opName').value.trim(), dept:document.getElementById('opDept').value.trim()};
-    localStorage.setItem('ihc_operator', JSON.stringify(operator));
-    document.getElementById('modalOperator').classList.remove('show');
-    updateOperatorLabel();
-    document.getElementById('cfgOperatorName').value = operator.name;
-    document.getElementById('cfgOperatorDept').value = operator.dept;
-  };
-  document.getElementById('modalOperator').addEventListener('click', e=>{ if(e.target.id==='modalOperator') document.getElementById('modalOperator').classList.remove('show'); });
 
   // grid
   document.getElementById('toggleIP').addEventListener('click', ()=>{
@@ -889,16 +1067,16 @@ function wireUI(){
       persist();
     });
   });
-  document.getElementById('cfgOperatorName').addEventListener('change', ()=>{
-    operator.name = document.getElementById('cfgOperatorName').value.trim();
-    localStorage.setItem('ihc_operator', JSON.stringify(operator));
-    updateOperatorLabel();
-  });
-  document.getElementById('cfgOperatorDept').addEventListener('change', ()=>{
-    operator.dept = document.getElementById('cfgOperatorDept').value.trim();
-    localStorage.setItem('ihc_operator', JSON.stringify(operator));
-    updateOperatorLabel();
-  });
+  document.getElementById('btnAddAuthorizedUser').onclick = ()=>{
+    const meRole = (window.currentStaffProfile?.role||'').toUpperCase();
+    if(meRole!=='HOD' && (window.currentFirebaseUser?.email||'').split('@')[0]!=='test'){
+      toast('Only an HOD can manage authorized login users.');
+      return;
+    }
+    state.authorizedUsers.push({id:uid(), login:"newuser", name:"New HOD/RMO", role:"RMO", active:true});
+    persist();
+    toast('Login profile added');
+  };
 
   document.getElementById('btnExport').onclick = exportBackup;
   document.getElementById('btnImport').onclick = ()=>document.getElementById('importFile').click();
@@ -1212,12 +1390,40 @@ function renderSettingsMisc(){
   document.getElementById('cfgDayEnd').value = state.settings.dayEnd;
   document.getElementById('cfgLunchStart').value = state.settings.lunchStart;
   document.getElementById('cfgLunchEnd').value = state.settings.lunchEnd;
-  document.getElementById('cfgOperatorName').value = operator.name||'';
-  document.getElementById('cfgOperatorDept').value = operator.dept||'';
   document.getElementById('storageModeHint').textContent = hasShared()
     ? "This session is connected to shared storage: everyone opening this same scheduler link sees the same data (synced automatically, and every ~20 seconds)."
     : "This copy is running standalone in your browser: data is saved only on this computer. Use Export/Import below to move it to another computer, or ask about setting up shared access.";
+  renderAuthorizedUserEditor();
   updateStorageStat();
+}
+function renderAuthorizedUserEditor(){
+  const box = document.getElementById('authorizedUserEditor');
+  if(!box) return;
+  if(!Array.isArray(state.authorizedUsers)) state.authorizedUsers = [];
+  const canManage = (window.currentStaffProfile?.role||'').toUpperCase()==='HOD' || (window.currentFirebaseUser?.email||'').split('@')[0]==='test';
+  box.innerHTML = state.authorizedUsers.map((u,i)=>`
+    <div style="display:grid;grid-template-columns:1fr 1.3fr .8fr auto;gap:7px;align-items:end;margin-bottom:9px;">
+      <div class="field"><label>Login name</label><input data-au-field="login" data-au-index="${i}" value="${escapeHtml(u.login||'')}"></div>
+      <div class="field"><label>Display name</label><input data-au-field="name" data-au-index="${i}" value="${escapeHtml(u.name||'')}"></div>
+      <div class="field"><label>Role</label><select data-au-field="role" data-au-index="${i}"><option value="HOD" ${u.role==='HOD'?'selected':''}>HOD</option><option value="RMO" ${u.role==='RMO'?'selected':''}>RMO</option></select></div>
+      <button class="btn btn-danger btn-sm" data-au-delete="${i}" ${canManage?'':'disabled'}>Remove</button>
+    </div>
+  `).join('') || '<div class="hint">No HOD/RMO login profiles configured.</div>';
+
+  box.querySelectorAll('[data-au-field]').forEach(el=>{
+    el.disabled = !canManage;
+    el.addEventListener('change', ()=>{
+      const i=Number(el.dataset.auIndex), field=el.dataset.auField;
+      state.authorizedUsers[i][field] = el.value.trim();
+      persist();
+    });
+  });
+  box.querySelectorAll('[data-au-delete]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i=Number(btn.dataset.auDelete);
+    if(!confirm('Remove this login profile from the scheduler? The Firebase Authentication account will not be deleted.')) return;
+    state.authorizedUsers.splice(i,1);
+    persist();
+  }));
 }
 function updateStorageStat(){
   document.getElementById('storageStat').textContent = `Storing ${state.patients.length} patients, ${state.appointments.length} treatments, ${state.areas.length} areas, ${state.therapists.length} therapists, ${state.departments.length} departments.`;
@@ -1310,6 +1516,21 @@ function openApptModal(id, prefill){
   document.getElementById('afTime').value = a?a.time:'09:00';
   document.getElementById('afDuration').value = a?String(a.duration||45):'45';
   document.getElementById('afMedicine').value = a?a.medicine||'':'';
+
+  const staffMeta = document.getElementById('apptStaffMeta');
+  const createdByEl = document.getElementById('apptCreatedBy');
+  const updatedByEl = document.getElementById('apptUpdatedBy');
+  if (staffMeta && createdByEl && updatedByEl) {
+    if (a) {
+      createdByEl.textContent = (a.createdBy || '—') + (a.createdByRole ? ' ('+a.createdByRole+')' : '');
+      updatedByEl.textContent = (a.updatedBy || a.createdBy || '—') + (a.updatedByRole ? ' ('+a.updatedByRole+')' : '');
+      staffMeta.style.display = 'block';
+    } else {
+      createdByEl.textContent = '—';
+      updatedByEl.textContent = '—';
+      staffMeta.style.display = 'none';
+    }
+  }
 
   populateTherapistChips(a?a.therapistIds||[]:[]);
   updateApptFieldVisibility();
@@ -1412,9 +1633,19 @@ function saveAppt(){
       return;
     }
   }
-  const data = {...v, medicine: document.getElementById('afMedicine').value.trim(), createdBy: operator.name||''};
-  if(editingApptId){ Object.assign(state.appointments.find(x=>x.id===editingApptId), data); }
-  else { state.appointments.push({id:uid(), ...data}); }
+  const authUser = window.currentFirebaseUser || auth.currentUser;
+  const username = authUser ? (authUser.email||'').split('@')[0] : (operator.name||'');
+  const profile = window.currentStaffProfile || null;
+  const displayName = profile?.name || operator.name || username;
+  const role = profile?.role || operator.role || '';
+  const now = Date.now();
+  const data = {...v, medicine: document.getElementById('afMedicine').value.trim(), createdBy: displayName, createdByRole: role, createdByUid: authUser?.uid||'', updatedBy: displayName, updatedByRole: role, updatedByUid: authUser?.uid||'', updatedAt: now};
+  if(editingApptId){
+    const existing = state.appointments.find(x=>x.id===editingApptId);
+    if(existing){ Object.assign(existing, data); }
+  } else {
+    state.appointments.push({id:uid(), createdAt:now, ...data});
+  }
   document.getElementById('modalAppt').classList.remove('show');
   persist(); toast('Treatment saved');
 }
