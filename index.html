@@ -375,26 +375,51 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
 
 <div id="toast"></div>
 
-<script>
+<script type="module">
+import { db } from "./js/firebase.js";
+
+import {
+  doc,
+  getDoc,
+  setDoc,
+  onSnapshot
+} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
 (function(){
 "use strict";
 
 /* ================= Storage abstraction: shared (window.storage) with localStorage fallback ================= */
 const STORE_KEY = "ihc_scheduler_v2";
 const SHARED_KEY = "schedule-data";
-const hasShared = () => (typeof window.storage !== "undefined" && window.storage);
+const hasShared = () => true;
 
-async function remoteLoad(){
-  if(!hasShared()) return null;
-  try{
-    const res = await window.storage.get(SHARED_KEY, true);
-    if(res && res.value) return JSON.parse(res.value);
-  }catch(e){ /* key not found yet */ }
-  return null;
+async function remoteLoad() {
+    try {
+        const docRef = doc(db, "scheduler", "main");
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            return docSnap.data().schedule;
+        }
+
+        return null;
+    } catch (e) {
+        console.error("Firebase load error:", e);
+        return null;
+    }
 }
-async function remoteSave(s){
-  if(!hasShared()) return;
-  try{ await window.storage.set(SHARED_KEY, JSON.stringify(s), true); }catch(e){ console.error("shared save failed", e); }
+async function remoteSave(s) {
+    try {
+        await setDoc(
+            doc(db, "scheduler", "main"),
+            {
+                schedule: s,
+                updatedAt: Date.now()
+            }
+        );
+    } catch (e) {
+        console.error("Firebase save error:", e);
+    }
 }
 function localLoad(){
   try{ const raw = localStorage.getItem(STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
@@ -555,23 +580,48 @@ let printPatientId = null;
 /* ================= Persist / render ================= */
 let saveTimer = null;
 function persist(){
-  state.updatedAt = Date.now();
-  localSave(state);
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>remoteSave(state), 250);
-  renderAll();
-  updateSyncDot();
+
+    state.updatedAt = Date.now();
+
+    localSave(state);
+
+    remoteSave(state);
+
+    renderAll();
+
+    updateSyncDot();
+
 }
 
 /* ================= Init / boot ================= */
 async function boot(){
-  const remote = hasShared() ? await remoteLoad() : null;
+const remote = await remoteLoad();
   const local = localLoad();
   if(remote && local){ state = remote.updatedAt >= local.updatedAt ? remote : local; }
   else { state = remote || local || defaultState(); }
   if(!state.version || state.version < 2){ state = defaultState(); }
   localSave(state);
-  if(hasShared()) remoteSave(state);
+  await remoteSave(state);
+
+onSnapshot(doc(db, "scheduler", "main"), (snapshot) => {
+
+    if (!snapshot.exists()) return;
+
+    const remoteState = snapshot.data().schedule;
+
+    if (!remoteState) return;
+
+    if (
+        !state ||
+        remoteState.updatedAt > (state.updatedAt || 0)
+    ) {
+        state = remoteState;
+        localSave(state);
+        renderAll();
+        updateSyncDot();
+    }
+
+});
   loadSampleIfEmpty();
   wireUI();
   document.getElementById('activeDate').value = activeDate;
