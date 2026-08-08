@@ -157,6 +157,37 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
   body{background:#fff;}
   .container{padding:0;max-width:100%;}
   .panel{border:none;box-shadow:none;}
+.medicine-suggestions {
+  position: relative;
+  z-index: 1000;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+}
+
+.medicine-suggestion {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.medicine-suggestion:hover {
+  background: var(--teal-light);
+}
+
+.medicine-suggestion:last-child {
+  border-bottom: 0;
 }
 </style>
 </head>
@@ -445,7 +476,7 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
       </div>
     </div>
     <div class="field" id="afTherapistWrap"><label>Therapist(s)</label><div class="chip-multi" id="afTherapistChips"></div></div>
-    <div class="field" id="afMedicineWrap"><label>Treatment / Medicine / Notes</label><textarea id="afMedicine" rows="2" placeholder="e.g. Kottamchukkadi Tailam + Dhanwantaram Tailam"></textarea></div>
+    <div class="field" id="afMedicineWrap"><label>Treatment / Medicine / Notes</label><textarea id="afMedicine" rows="2" placeholder="e.g. Kottamchukkadi Tailam + Dhanwantaram Tailam"></textarea><div id="medicineSuggestions" class="medicine-suggestions"></div></div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="afDelete" style="margin-right:auto;display:none;">Delete</button>
       <button class="btn btn-outline" id="afCancel">Cancel</button>
@@ -1288,6 +1319,43 @@ function openApptModal(id, prefill){
   document.getElementById('modalAppt').classList.add('show');
   refreshConflictPreview();
 }
+function updateMedicineSuggestions() {
+  const box = document.getElementById('medicineSuggestions');
+  const input = document.getElementById('afMedicine');
+
+  if (!box || !input) return;
+
+  const current = input.value.trim().toLowerCase();
+
+  const history = [...new Set(
+    state.appointments
+      .map(a => (a.medicine || '').trim())
+      .filter(Boolean)
+  )];
+
+  const filtered = current
+    ? history.filter(x => x.toLowerCase().includes(current))
+    : history;
+
+  box.innerHTML = filtered
+    .slice(0, 10)
+    .map(text => `
+      <button type="button" class="medicine-suggestion">
+        ${escapeHtml(text)}
+      </button>
+    `)
+    .join('');
+
+  box.querySelectorAll('.medicine-suggestion').forEach(btn => {
+    btn.addEventListener('click', () => {
+      input.value = btn.textContent.trim();
+      box.innerHTML = '';
+      input.focus();
+    });
+  });
+}
+document.getElementById('afMedicine').addEventListener('focus', updateMedicineSuggestions);
+document.getElementById('afMedicine').addEventListener('input', updateMedicineSuggestions);
 function populateAreaOptions(){
   const deptId = document.getElementById('afDept').value;
   const sel = document.getElementById('afArea');
