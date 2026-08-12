@@ -625,7 +625,32 @@ function unlockApp(user, profile){
   window.currentFirebaseUser = user;
   window.currentStaffProfile = profile || null;
   updateOperatorFromAuth(user, profile);
+  updateAdminTabs();
 }
+
+const ADMIN_UID = 'ga2PuooJcPQoagypK9Ig8acsNWa2';
+
+function isAdmin(){
+  return !!window.currentFirebaseUser &&
+         window.currentFirebaseUser.uid === ADMIN_UID;
+}
+function updateAdminTabs(){
+  const admin = isAdmin();
+
+  document.querySelectorAll('.tab-btn[data-view="resources"], .tab-btn[data-view="settings"]')
+    .forEach(btn => {
+      btn.style.display = admin ? '' : 'none';
+    });
+
+  if(!admin && (currentView === 'resources' || currentView === 'settings')){
+    currentView = 'grid';
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelector('.tab-btn[data-view="grid"]')?.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-grid')?.classList.add('active');
+  }
+}
+
 function updateOperatorFromAuth(user, profile){
   if(!user) return;
   const username = (user.email||'').split('@')[0];
@@ -1012,12 +1037,25 @@ function wireUI(){
   document.getElementById('btnRefresh').onclick = async ()=>{ await pullRemote(); toast('Refreshed'); };
 
   document.getElementById('tabs').addEventListener('click', e=>{
-    const btn = e.target.closest('.tab-btn'); if(!btn) return;
+    const btn = e.target.closest('.tab-btn');
+    if(!btn) return;
+
+    const requestedView = btn.dataset.view;
+
+    // Rooms & Therapists and Settings are Admin-only.
+    if((requestedView === 'resources' || requestedView === 'settings') && !isAdmin()){
+      toast('Admin access required');
+      return;
+    }
+
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active');
-    currentView = btn.dataset.view;
+
+    currentView = requestedView;
+
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     document.getElementById('view-'+currentView).classList.add('active');
+
     renderAll();
   });
 
