@@ -902,17 +902,51 @@ function persist(){
 }
 
 /* ================= Init / boot ================= */
+function deleteAppointmentsOlderThan7Days(){
+  if(!Array.isArray(state.appointments)) return 0;
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() - 7);
+
+  const cutoffISO =
+    cutoff.getFullYear() + '-' +
+    String(cutoff.getMonth() + 1).padStart(2,'0') + '-' +
+    String(cutoff.getDate()).padStart(2,'0');
+
+  const beforeCount = state.appointments.length;
+
+  state.appointments = state.appointments.filter(a=>{
+    if(!a.date) return true;
+    return a.date >= cutoffISO;
+  });
+
+  const deletedCount = beforeCount - state.appointments.length;
+
+  if(deletedCount > 0){
+    state.updatedAt = Date.now();
+    console.log(`Deleted ${deletedCount} appointment(s) older than 7 days.`);
+  }
+
+  return deletedCount;
+}
 async function boot(){
 const remote = await remoteLoad();
   const local = localLoad();
   if(remote && local){ state = remote.updatedAt >= local.updatedAt ? remote : local; }
   else { state = remote || local || defaultState(); }
-  if(!state.version || state.version < 2){ state = defaultState(); }
-  if(!Array.isArray(state.authorizedUsers)){
-    state.authorizedUsers = [{id:"login_test", login:"test", name:"Test User", role:"RMO", active:true}];
-  }
-  localSave(state);
-  await remoteSave(state);
+if(!state.version || state.version < 2){ state = defaultState(); }
+
+if(!Array.isArray(state.authorizedUsers)){
+  state.authorizedUsers = [{id:"login_test", login:"test", name:"Test User", role:"RMO", active:true}];
+}
+
+deleteAppointmentsOlderThan7Days();
+
+localSave(state);
+await remoteSave(state);
 
 onSnapshot(doc(db, "scheduler", "main"), (snapshot) => {
 
