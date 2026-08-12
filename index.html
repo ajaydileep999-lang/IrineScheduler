@@ -744,9 +744,9 @@ function defaultState(){
     {name:"Naturopathy", nameAr:"الطبيعة العلاجية", style:"list", therapist:true, medicine:false, duration:false},
     {name:"Physiotherapy", nameAr:"العلاج الطبيعي", style:"grid", therapist:true, medicine:false, duration:false},
     {name:"Hand Rehab", nameAr:"إعادة تأهيل اليد", style:"grid", therapist:true, medicine:false, duration:false},
-    {name:"Yoga", nameAr:"يوغا", style:"list", therapist:false, medicine:false, duration:false},
-    {name:"Acupuncture", nameAr:"الوخز بالإبر", style:"list", therapist:false, medicine:false, duration:false},
-    {name:"Cupping", nameAr:"حجامة", style:"list", therapist:false, medicine:false, duration:false},
+    {name:"Yoga", nameAr:"يوغا", style:"list", therapist:true, medicine:false, duration:false},
+    {name:"Acupuncture", nameAr:"الوخز بالإبر", style:"list", therapist:true, medicine:false, duration:false},
+    {name:"Cupping", nameAr:"حجامة", style:"list", therapist:true, medicine:false, duration:false},
     {name:"Speech Therapy", nameAr:"علاج النطق", style:"list", therapist:true, medicine:false, duration:false},
     {name:"Occupational Therapy", nameAr:"العلاج الوظيفي", style:"list", therapist:true, medicine:false, duration:false}
   ].map((d,i)=>({id:uid(), color:DEPT_COLORS[i%DEPT_COLORS.length], active:true, ...d}));
@@ -1059,7 +1059,12 @@ function wireUI(){
   document.getElementById('afCancel').onclick = ()=>document.getElementById('modalAppt').classList.remove('show');
   document.getElementById('afSave').onclick = saveAppt;
   document.getElementById('afDelete').onclick = deleteAppt;
-  document.getElementById('afDept').addEventListener('change', ()=>{ populateAreaOptions(); updateApptFieldVisibility(); refreshConflictPreview(); });
+  document.getElementById('afDept').addEventListener('change', ()=>{
+    populateAreaOptions();
+    updateApptFieldVisibility();
+    populateTherapistChips([]);
+    refreshConflictPreview();
+  });
   ['afPatient','afArea','afDate','afTime','afDuration'].forEach(id=> document.getElementById(id).addEventListener('input', refreshConflictPreview));
   document.getElementById('modalAppt').addEventListener('click', e=>{ if(e.target.id==='modalAppt') document.getElementById('modalAppt').classList.remove('show'); });
 
@@ -1264,28 +1269,116 @@ function renderAreaEditor(){
 }
 function renderTherapistEditor(){
   const el = document.getElementById('therapistEditor');
-  el.innerHTML = state.therapists.map(t=>`
-    <div class="cfg-row" data-id="${t.id}">
-      <input type="text" data-field="name" value="${escapeHtml(t.name)}">
-      <label class="chk-inline"><input type="checkbox" data-field="active" ${t.active!==false?'checked':''}>Active</label>
-      <button class="btn btn-danger btn-sm" data-del="1">✕</button>
-    </div>`).join('');
+
+  const depts = activeDepts().filter(d =>
+    ["Ayurveda","Naturopathy","Yoga","Acupuncture","Cupping","Physiotherapy"].includes(d.name)
+  );
+
+  function renderDepartment(deptId){
+    const d = dept(deptId);
+    if(!d) return '';
+
+    const people = state.therapists.filter(t=>t.deptId===deptId);
+
+    return `
+      <div class="therapist-dept-group" style="margin-bottom:18px;">
+        <div style="font-weight:700;font-size:15px;margin-bottom:8px;">
+          ${escapeHtml(d.name)}
+        </div>
+
+        ${people.length ? people.map(t=>`
+          <div class="cfg-row" data-id="${t.id}">
+            <input type="text" data-field="name" value="${escapeHtml(t.name)}">
+            <label class="chk-inline">
+              <input type="checkbox" data-field="active" ${t.active!==false?'checked':''}>
+              Active
+            </label>
+            <button class="btn btn-danger btn-sm" data-del="1">✕</button>
+          </div>
+        `).join('') : `
+          <div class="hint" style="margin-bottom:8px;">
+            No doctors or therapists added yet.
+          </div>
+        `}
+
+        <button type="button" class="btn btn-primary btn-sm" data-add-dept="${d.id}">
+          + Add Doctor / Therapist
+        </button>
+      </div>
+    `;
+  }
+
+  const unassigned = state.therapists.filter(t=>!t.deptId);
+
+  el.innerHTML =
+    depts.map(d=>renderDepartment(d.id)).join('') +
+    (unassigned.length ? `
+      <div class="therapist-dept-group" style="margin-bottom:18px;">
+        <div style="font-weight:700;font-size:15px;margin-bottom:8px;">
+          Unassigned
+        </div>
+        ${unassigned.map(t=>`
+          <div class="cfg-row" data-id="${t.id}">
+            <input type="text" data-field="name" value="${escapeHtml(t.name)}">
+            <select data-field="deptId" style="min-width:150px;">
+              <option value="">Select Department</option>
+              ${depts.map(d=>`<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('')}
+            </select>
+            <label class="chk-inline">
+              <input type="checkbox" data-field="active" ${t.active!==false?'checked':''}>
+              Active
+            </label>
+            <button class="btn btn-danger btn-sm" data-del="1">✕</button>
+          </div>
+        `).join('')}
+        <div class="hint">Assign these existing people to the correct department.</div>
+      </div>
+    ` : '');
+
   el.querySelectorAll('.cfg-row').forEach(row=>{
     const id = row.dataset.id;
+
     row.querySelectorAll('[data-field]').forEach(inp=>{
       inp.addEventListener('change', ()=>{
-        const t = therapist(id); if(!t) return;
-        t[inp.dataset.field] = inp.type==='checkbox'?inp.checked:inp.value;
+        const t = therapist(id);
+        if(!t) return;
+
+        t[inp.dataset.field] =
+          inp.type==='checkbox' ? inp.checked : inp.value;
+
         save_();
       });
     });
+
     row.querySelector('[data-del]').addEventListener('click', ()=>{
       if(!confirm('Remove this therapist?')) return;
+
       state.therapists = state.therapists.filter(x=>x.id!==id);
       persist();
     });
   });
+
+  el.querySelectorAll('[data-add-dept]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const deptId = btn.dataset.addDept;
+      const d = dept(deptId);
+      if(!d) return;
+
+      const name = prompt(`Enter ${d.name} doctor / therapist name:`);
+      if(!name || !name.trim()) return;
+
+      state.therapists.push({
+        id:uid(),
+        name:name.trim(),
+        deptId:deptId,
+        active:true
+      });
+
+      persist();
+    });
+  });
 }
+
 function save_(){ persist(); }
 
 /* ================= PRINT CENTER ================= */
@@ -1620,7 +1713,20 @@ function populateAreaOptions(){
 }
 function populateTherapistChips(selectedIds){
   const wrap = document.getElementById('afTherapistChips');
-  wrap.innerHTML = activeTherapists().map(t=>`<label><input type="checkbox" value="${t.id}" ${selectedIds.includes(t.id)?'checked':''}>${escapeHtml(t.name)}</label>`).join('');
+  const deptId = document.getElementById('afDept').value;
+
+  const matching = activeTherapists().filter(t=>t.deptId===deptId);
+  const selectedWithoutDept = activeTherapists().filter(t=>
+    selectedIds.includes(t.id) && !t.deptId
+  );
+
+  const therapistsToShow = [...matching, ...selectedWithoutDept]
+    .filter((t,i,arr)=>arr.findIndex(x=>x.id===t.id)===i);
+
+  wrap.innerHTML = therapistsToShow.length
+    ? therapistsToShow.map(t=>`<label><input type="checkbox" value="${t.id}" ${selectedIds.includes(t.id)?'checked':''}>${escapeHtml(t.name)}</label>`).join('')
+    : '<span class="hint">No therapists assigned to this department yet.</span>';
+
   wrap.querySelectorAll('input').forEach(cb=> cb.addEventListener('change', refreshConflictPreview));
 }
 function getSelectedTherapistIds(){
