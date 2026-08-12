@@ -1329,7 +1329,7 @@ function renderDeptPrint(deptId){
   const d = dept(deptId);
   if(!d) return '<div class="empty-state">No departments yet.</div>';
   let rows = state.appointments.filter(a=>a.deptId===d.id && a.date===activeDate).map(a=>({...a, p:patient(a.patientId), ar:area(a.areaId)})).filter(r=>r.p);
-  rows.sort((a,b)=>roomSort(a.p,b.p) || (a.time||"").localeCompare(b.time||""));
+  rows.sort((a,b)=>(a.time||"").localeCompare(b.time||"") || roomSort(a.p,b.p));
   let html = `<div class="dept-title-bar"><span>${escapeHtml(d.name).toUpperCase()} — ${fmtDateLabel(activeDate)}</span><span style="font-size:11.5px;font-weight:400;">${rows.length} scheduled</span></div>`;
   if(rows.length===0) return html+'<div class="empty-state">No treatments scheduled for this department.</div>';
   if(d.style==='list'){
