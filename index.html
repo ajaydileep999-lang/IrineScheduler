@@ -1203,7 +1203,7 @@ function renderGrid(){
       cellAppts.forEach(a=>{
         const ar = area(a.areaId);
         const ths = (a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
-        html += `<div class="cell-chip" data-appt="${a.id}"><b>${fmtTime12(a.time)}</b>${ar?('<span>'+escapeHtml(ar.name)+'</span>'):''}${ths?('<span>'+escapeHtml(ths)+'</span>'):''}</div>`;
+        html += `<div class="cell-chip" data-appt="${a.id}"><b>${fmtTime12(a.time)}</b>${ar?('<span>🚪 '+escapeHtml(ar.name)+'</span>'):''}${ths?('<span>👤 '+escapeHtml(ths)+'</span>'):''}</div>`;
       });
       html += `<div class="cell-add" data-add-patient="${p.id}" data-add-dept="${d.id}">+ add</div></td>`;
     });
@@ -1262,7 +1262,7 @@ function apptCardHtml(a){
     <div>
       <span class="appt-time">${fmtTime12(a.time)}</span> · <span class="appt-dept">${escapeHtml(d.name)}</span>
       ${a.date!==activeDate?` · <span style="color:var(--muted);">${a.date}</span>`:''}
-      <div class="appt-meta">${ar?('Room: '+escapeHtml(ar.name)+'  '):''}${ths?('· Therapist: '+escapeHtml(ths)+'  '):''}${a.duration?('· '+a.duration+' min '):''}${a.medicine?('· '+escapeHtml(a.medicine)):''}</div>
+      <div class="appt-meta">${ar?('🚪 Room: '+escapeHtml(ar.name)+'  '):''}${ths?('👤 Therapist: '+escapeHtml(ths)+'  '):''}${a.duration?('· '+a.duration+' min '):''}${a.medicine?('· '+escapeHtml(a.medicine)):''}</div>
     </div></div>`;
 }
 
@@ -1308,9 +1308,7 @@ function renderAreaEditor(){
 function renderTherapistEditor(){
   const el = document.getElementById('therapistEditor');
 
-  const depts = activeDepts().filter(d =>
-    ["Ayurveda","Naturopathy","Yoga","Acupuncture","Cupping","Physiotherapy"].includes(d.name)
-  );
+  const depts = activeDepts().filter(d => d.therapist === true);
 
   function renderDepartment(deptId){
     const d = dept(deptId);
