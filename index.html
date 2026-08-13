@@ -1145,9 +1145,8 @@ function wireUI(){
     });
   });
   document.getElementById('btnAddAuthorizedUser').onclick = ()=>{
-    const meRole = (window.currentStaffProfile?.role||'').toUpperCase();
-    if(meRole!=='HOD' && (window.currentFirebaseUser?.email||'').split('@')[0]!=='test'){
-      toast('Only an HOD can manage authorized login users.');
+    if(!isAdmin()){
+      toast('Only the Admin can add HOD/RMO users.');
       return;
     }
     state.authorizedUsers.push({id:uid(), login:"newuser", name:"New HOD/RMO", role:"RMO", active:true});
@@ -1563,7 +1562,7 @@ function renderAuthorizedUserEditor(){
   const box = document.getElementById('authorizedUserEditor');
   if(!box) return;
   if(!Array.isArray(state.authorizedUsers)) state.authorizedUsers = [];
-  const canManage = (window.currentStaffProfile?.role||'').toUpperCase()==='HOD' || (window.currentFirebaseUser?.email||'').split('@')[0]==='test';
+  const canManage = isAdmin();
   box.innerHTML = state.authorizedUsers.map((u,i)=>`
     <div style="display:grid;grid-template-columns:1fr 1.3fr .8fr auto;gap:7px;align-items:end;margin-bottom:9px;">
       <div class="field"><label>Login name</label><input data-au-field="login" data-au-index="${i}" value="${escapeHtml(u.login||'')}"></div>
