@@ -568,6 +568,9 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
+  deleteDoc,
+  runTransaction,
   onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
@@ -619,6 +622,138 @@ async function findAuthorizedProfile(username){
     return null;
   }
 }
+
+/* ================= Single active User session =================
+   Only one non-Admin User may be logged in at a time.
+   Admin is never blocked.
+   Session lives in Firestore and expires automatically.
+*/
+const USER_SESSION_REF = doc(db, "scheduler", "activeUserSession");
+const USER_SESSION_LEASE_MS = 2 * 60 * 1000;
+const USER_SESSION_HEARTBEAT_MS = 30 * 1000;
+
+let userSessionHeartbeat = null;
+let userSessionId = null;
+let intentionalLogout = false;
+
+function createUserSessionId(){
+  return `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+}
+
+async function claimUserSession(user){
+  if(!user || user.uid === ADMIN_UID) return true;
+
+  const sessionId = createUserSessionId();
+
+  try{
+    await runTransaction(db, async transaction => {
+      const snap = await transaction.get(USER_SESSION_REF);
+      const existing = snap.exists() ? snap.data() : null;
+      const now = Date.now();
+
+      if(
+        existing &&
+        existing.uid &&
+        existing.uid !== user.uid &&
+        Number(existing.expiresAt || 0) > now
+      ){
+        throw new Error("USER_SESSION_OCCUPIED");
+      }
+
+      transaction.set(USER_SESSION_REF, {
+        uid: user.uid,
+        sessionId: sessionId,
+        startedAt: now,
+        heartbeatAt: now,
+        expiresAt: now + USER_SESSION_LEASE_MS
+      });
+    });
+
+    userSessionId = sessionId;
+    startUserSessionHeartbeat();
+
+    return true;
+
+  }catch(e){
+    if(e.message === "USER_SESSION_OCCUPIED"){
+      return false;
+    }
+
+    console.error("User session claim failed:", e);
+    return false;
+  }
+}
+
+function startUserSessionHeartbeat(){
+  stopUserSessionHeartbeat();
+
+  userSessionHeartbeat = setInterval(async ()=>{
+    const user = window.currentFirebaseUser;
+
+    if(!user || user.uid === ADMIN_UID || !userSessionId){
+      stopUserSessionHeartbeat();
+      return;
+    }
+
+    const now = Date.now();
+
+    try{
+      const snap = await getDoc(USER_SESSION_REF);
+      const session = snap.exists() ? snap.data() : null;
+
+      if(
+        !session ||
+        session.sessionId !== userSessionId ||
+        Number(session.expiresAt || 0) <= now
+      ){
+        stopUserSessionHeartbeat();
+        userSessionId = null;
+        await signOut(auth);
+        showLoginError('Your User session has ended.');
+        return;
+      }
+
+      await updateDoc(USER_SESSION_REF, {
+        heartbeatAt: now,
+        expiresAt: now + USER_SESSION_LEASE_MS
+      });
+
+    }catch(e){
+      console.error("User session heartbeat failed:", e);
+    }
+  }, USER_SESSION_HEARTBEAT_MS);
+}
+
+function stopUserSessionHeartbeat(){
+  if(userSessionHeartbeat){
+    clearInterval(userSessionHeartbeat);
+    userSessionHeartbeat = null;
+  }
+}
+
+async function releaseUserSession(){
+  stopUserSessionHeartbeat();
+
+  const sessionId = userSessionId;
+  userSessionId = null;
+
+  if(!sessionId) return;
+
+  try{
+    const snap = await getDoc(USER_SESSION_REF);
+
+    if(
+      snap.exists() &&
+      snap.data().sessionId === sessionId
+    ){
+      await deleteDoc(USER_SESSION_REF);
+    }
+
+  }catch(e){
+    console.error("Could not release User session:", e);
+  }
+}
+
 function unlockApp(user, profile){
   document.body.classList.remove('login-locked');
   loginScreen.style.display='none';
@@ -675,6 +810,18 @@ loginForm.addEventListener('submit', async (e)=>{
     // Authenticate with Firebase first. Authorization/profile lookup happens only
     // after authentication, so Firestore read rules cannot block the login itself.
     const cred=await signInWithEmailAndPassword(auth, staffLoginEmail(username), password);
+
+    // Admin is always allowed. Only normal Users are limited to one active session.
+    if(cred.user.uid !== ADMIN_UID){
+      const claimed = await claimUserSession(cred.user);
+
+      if(!claimed){
+        await signOut(auth);
+        showLoginError('Another User is currently logged in. Please try again after that User logs out.');
+        return;
+      }
+    }
+
     let profile = await findAuthorizedProfile(username);
 
     // Existing test account remains available for local testing.
@@ -706,12 +853,49 @@ loginForm.addEventListener('submit', async (e)=>{
 
 onAuthStateChanged(auth, async user=>{
   if(user){
+
+    // Admin is never subject to the single-User restriction.
+    // If the session was already claimed by the login handler, do not claim it again.
+    // If the page was refreshed/reopened, userSessionId is empty, so claim it now.
+    if(user.uid !== ADMIN_UID && !userSessionId){
+
+      const claimed = await claimUserSession(user);
+
+      if(!claimed){
+        await signOut(auth);
+
+        window.currentFirebaseUser = null;
+        window.currentStaffProfile = null;
+
+        document.body.classList.add('login-locked');
+        loginScreen.style.display='flex';
+
+        showLoginError(
+          'Another User is currently logged in. Please try again after that User logs out.'
+        );
+
+        return;
+      }
+    }
+
     const username = (user.email||'').split('@')[0];
     const profile = await findAuthorizedProfile(username);
+
     unlockApp(user, profile);
+
   } else {
+
+    // If this was a normal logout, the session was already released
+    // before signOut(). Do not try to release it again.
+    if(!intentionalLogout){
+      await releaseUserSession();
+    }
+
+    intentionalLogout = false;
+
     window.currentFirebaseUser = null;
     window.currentStaffProfile = null;
+
     document.body.classList.add('login-locked');
     loginScreen.style.display='flex';
   }
@@ -1088,7 +1272,23 @@ function wireUI(){
   });
 
   document.getElementById('operatorPill').onclick = async ()=>{
-    if(confirm('Log out of the scheduler?')){ await signOut(auth); }
+    if(!confirm('Log out of the scheduler?')) return;
+
+    intentionalLogout = true;
+
+    try{
+      const user = window.currentFirebaseUser;
+
+      if(user && user.uid !== ADMIN_UID){
+        await releaseUserSession();
+      }
+
+      await signOut(auth);
+
+    }catch(e){
+      console.error('Logout failed:', e);
+      intentionalLogout = false;
+    }
   };
 
   // grid
