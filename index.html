@@ -729,7 +729,14 @@ async function remoteLoad() {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-            return docSnap.data().schedule;
+            const data = docSnap.data();
+            const schedule = data.schedule;
+            if(!schedule) return null;
+
+            return {
+                ...schedule,
+                updatedAt: data.updatedAt || schedule.updatedAt || 0
+            };
         }
 
         return null;
@@ -977,9 +984,15 @@ onSnapshot(doc(db, "scheduler", "main"), (snapshot) => {
 
     if (!snapshot.exists()) return;
 
-    const remoteState = snapshot.data().schedule;
+    const data = snapshot.data();
+    const schedule = data.schedule;
 
-    if (!remoteState) return;
+    if (!schedule) return;
+
+    const remoteState = {
+        ...schedule,
+        updatedAt: data.updatedAt || schedule.updatedAt || 0
+    };
 
     if (
         !state ||
