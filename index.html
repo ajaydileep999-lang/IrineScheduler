@@ -885,9 +885,24 @@ function checkConflicts({patientId, areaId, therapistIds, date, time, duration, 
 
   // 3. therapist double-booked
   (therapistIds||[]).forEach(tid=>{
-    const clash = dayAppts.find(a=> (a.therapistIds||[]).includes(tid) && overlaps(time,duration,a.time,a.duration));
+    const currentTherapist = therapist(tid);
+    const currentName = (currentTherapist?.name || '').trim().toLowerCase();
+
+    const clash = dayAppts.find(a=>{
+      if(!overlaps(time,duration,a.time,a.duration)) return false;
+
+      return (a.therapistIds||[]).some(existingTid=>{
+        if(existingTid === tid) return true;
+
+        const existingTherapist = therapist(existingTid);
+        const existingName = (existingTherapist?.name || '').trim().toLowerCase();
+
+        return currentName && existingName && currentName === existingName;
+      });
+    });
+
     if(clash){
-      const t = therapist(tid), d = dept(clash.deptId), p = patient(clash.patientId);
+      const t = currentTherapist, d = dept(clash.deptId), p = patient(clash.patientId);
       hard.push(`${t?t.name:'This therapist'} is already assigned to ${p?p.name:'another patient'} (${d?d.name:''}) at ${fmtTime12(clash.time)} — can't double-book a therapist.`);
     }
   });
