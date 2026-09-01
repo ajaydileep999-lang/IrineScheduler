@@ -566,6 +566,7 @@ body.login-locked .container { display:none !important; }
     </div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="afDelete" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn btn-outline" id="afCopyTomorrow" style="display:none;">Copy to Tomorrow</button>
       <button class="btn btn-outline" id="afCancel">Cancel</button>
       <button class="btn btn-primary" id="afSave">Save</button>
     </div>
@@ -1335,6 +1336,7 @@ function wireUI(){
   document.getElementById('afCancel').onclick = ()=>document.getElementById('modalAppt').classList.remove('show');
   document.getElementById('afSave').onclick = saveAppt;
   document.getElementById('afDelete').onclick = deleteAppt;
+  document.getElementById('afCopyTomorrow').onclick = copyApptToTomorrow;
   document.getElementById('afDept').addEventListener('change', ()=>{
     populateAreaOptions();
     updateApptFieldVisibility();
@@ -1962,6 +1964,7 @@ function openApptModal(id, prefill){
   updateApptFieldVisibility();
 
   document.getElementById('afDelete').style.display = a ? 'inline-flex':'none';
+  document.getElementById('afCopyTomorrow').style.display = a ? 'inline-flex':'none';
   document.getElementById('conflictArea').innerHTML = '';
   document.getElementById('modalAppt').classList.add('show');
   refreshConflictPreview();
@@ -2138,6 +2141,49 @@ function saveAppt(){
   persist();
   toast(conflictOverride ? 'Treatment saved with conflict warning' : 'Treatment saved');
 }
+function copyApptToTomorrow(){
+  if(!editingApptId) return;
+
+  const source = state.appointments.find(x=>x.id===editingApptId);
+  if(!source) return;
+
+  const sourceDate = new Date(source.date + "T00:00:00");
+  sourceDate.setDate(sourceDate.getDate() + 1);
+
+  const tomorrow = sourceDate.getFullYear() + "-" +
+    String(sourceDate.getMonth()+1).padStart(2,"0") + "-" +
+    String(sourceDate.getDate()).padStart(2,"0");
+
+  const copied = {
+    ...source,
+    id: uid(),
+    date: tomorrow,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+
+    // The copied appointment is a new booking.
+    // Do not carry the old conflict status into tomorrow.
+    conflictOverride: false,
+    conflictMessages: [],
+    conflictApptIds: [],
+
+    createdBy: source.createdBy || "",
+    createdByRole: source.createdByRole || "",
+    createdByUid: source.createdByUid || "",
+    updatedBy: source.updatedBy || "",
+    updatedByRole: source.updatedByRole || "",
+    updatedByUid: source.updatedByUid || ""
+  };
+
+  state.appointments.push(copied);
+
+  persist();
+
+  document.getElementById('modalAppt').classList.remove('show');
+
+  toast('Treatment copied to tomorrow');
+}
+
 function deleteAppt(){
   if(!editingApptId) return;
   if(!confirm('Delete this scheduled treatment?')) return;
