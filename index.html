@@ -85,6 +85,19 @@ table.grid tbody tr:hover td.room-cell{background:#eef4f1;}
 .patient-room{font-size:10.5px;color:var(--muted);font-weight:600;}
 .cell-chip{display:flex;flex-direction:column;gap:1px;background:var(--teal-light);border-radius:6px;padding:3px 7px;font-size:11px;margin-bottom:4px;cursor:pointer;border-left:3px solid var(--teal);}
 .cell-chip.conflict{border-left-color:var(--danger);background:var(--danger-bg);}
+.conflict-pop{
+  display:inline-block;
+  align-self:flex-start;
+  padding:2px 5px;
+  border-radius:4px;
+  background:var(--danger);
+  color:#fff;
+  font-size:9px;
+  font-weight:800;
+  letter-spacing:.3px;
+  line-height:1.2;
+  margin-bottom:2px;
+}
 .cell-chip:hover{filter:brightness(0.97);}
 .cell-chip b{color:var(--teal-dark);}
 .cell-add{border:1px dashed var(--line);color:var(--muted);border-radius:6px;padding:3px 7px;font-size:10.5px;cursor:pointer;text-align:center;}
@@ -1047,11 +1060,20 @@ function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;'
 // Returns {hard:[messages], soft:[messages]}
 function checkConflicts({patientId, areaId, therapistIds, date, time, duration, excludeApptId}){
   const hard = [], soft = [];
+  const conflictApptIds = [];
   const dayAppts = apptsFor(date).filter(a=>a.id!==excludeApptId);
+
+  function addConflictAppointment(a){
+    if(a && a.id && !conflictApptIds.includes(a.id)){
+      conflictApptIds.push(a.id);
+    }
+  }
 
   // 1. patient double-booked (any department)
   dayAppts.filter(a=>a.patientId===patientId).forEach(a=>{
     if(overlaps(time,duration,a.time,a.duration)){
+      addConflictAppointment(a);
+
       const d = dept(a.deptId);
       hard.push(`This patient already has ${d?d.name:'a treatment'} at ${fmtTime12(a.time)} (${a.duration||'?'} min) — a patient can only be in one treatment at a time.`);
     }
@@ -1061,8 +1083,14 @@ function checkConflicts({patientId, areaId, therapistIds, date, time, duration, 
   if(areaId){
     const ar = area(areaId);
     const cap = ar ? Number(ar.capacity||1) : 1;
-    const overlapping = dayAppts.filter(a=>a.areaId===areaId && overlaps(time,duration,a.time,a.duration));
+
+    const overlapping = dayAppts.filter(
+      a=>a.areaId===areaId && overlaps(time,duration,a.time,a.duration)
+    );
+
     if(overlapping.length >= cap){
+      overlapping.forEach(addConflictAppointment);
+
       hard.push(`${ar?ar.name:'This area'} is already booked to capacity (${cap}) at this time — ${overlapping.length} treatment(s) already scheduled there then.`);
     }
   }
@@ -1072,7 +1100,7 @@ function checkConflicts({patientId, areaId, therapistIds, date, time, duration, 
     const currentTherapist = therapist(tid);
     const currentName = (currentTherapist?.name || '').trim().toLowerCase();
 
-    const clash = dayAppts.find(a=>{
+    const clashes = dayAppts.filter(a=>{
       if(!overlaps(time,duration,a.time,a.duration)) return false;
 
       return (a.therapistIds||[]).some(existingTid=>{
@@ -1085,24 +1113,38 @@ function checkConflicts({patientId, areaId, therapistIds, date, time, duration, 
       });
     });
 
-    if(clash){
-      const t = currentTherapist, d = dept(clash.deptId), p = patient(clash.patientId);
+    clashes.forEach(clash=>{
+      addConflictAppointment(clash);
+
+      const t = currentTherapist;
+      const d = dept(clash.deptId);
+      const p = patient(clash.patientId);
+
       hard.push(`${t?t.name:'This therapist'} is already assigned to ${p?p.name:'another patient'} (${d?d.name:''}) at ${fmtTime12(clash.time)} — can't double-book a therapist.`);
-    }
+    });
   });
 
   // 4. lunch break — soft
   const {lunchStart, lunchEnd} = state.settings;
-  if(lunchStart && lunchEnd && overlaps(time,duration,lunchStart,toMin(lunchEnd)-toMin(lunchStart))){
+  if(lunchStart && lunchEnd && overlaps(
+    time,
+    duration,
+    lunchStart,
+    toMin(lunchEnd)-toMin(lunchStart)
+  )){
     soft.push(`This falls inside the lunch break (${fmtTime12(lunchStart)}–${fmtTime12(lunchEnd)}).`);
   }
+
   // 5. outside clinic hours — soft
   const {dayStart, dayEnd} = state.settings;
-  if(toMin(time) < toMin(dayStart) || (toMin(time)+Number(duration||0)) > toMin(dayEnd)){
+  if(
+    toMin(time) < toMin(dayStart) ||
+    (toMin(time)+Number(duration||0)) > toMin(dayEnd)
+  ){
     soft.push(`This is outside normal clinic hours (${fmtTime12(dayStart)}–${fmtTime12(dayEnd)}).`);
   }
 
-  return {hard, soft};
+  return {hard, soft, conflictApptIds};
 }
 
 /* ================= Selections ================= */
@@ -1398,7 +1440,33 @@ function renderGrid(){
       cellAppts.forEach(a=>{
         const ar = area(a.areaId);
         const ths = (a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
-        html += `<div class="cell-chip" data-appt="${a.id}"><b>${fmtTime12(a.time)}</b>${ar?('<span>🚪 '+escapeHtml(ar.name)+'</span>'):''}${ths?('<span>👤 '+escapeHtml(ths)+'</span>'):''}</div>`;
+        // Show CONFLICT on this appointment if it was explicitly overridden,
+        // or if another appointment that was overridden identifies this appointment
+        // as one of the appointments involved in the conflict.
+        let isConflict = !!a.conflictOverride;
+
+        if(!isConflict){
+          const relatedOverride = todays.some(other =>
+            other.id !== a.id &&
+            other.conflictOverride &&
+            Array.isArray(other.conflictApptIds) &&
+            other.conflictApptIds.includes(a.id)
+          );
+
+          isConflict = relatedOverride;
+        }
+
+        const conflictClass = isConflict ? ' conflict' : '';
+        const conflictBadge = isConflict
+          ? `<span class="conflict-pop">⚠ CONFLICT</span>`
+          : '';
+
+        html += `<div class="cell-chip${conflictClass}" data-appt="${a.id}">
+          ${conflictBadge}
+          <b>${fmtTime12(a.time)}</b>
+          ${ar?('<span>🚪 '+escapeHtml(ar.name)+'</span>'):''}
+          ${ths?('<span>👤 '+escapeHtml(ths)+'</span>'):''}
+        </div>`;
       });
       html += `<div class="cell-add" data-add-patient="${p.id}" data-add-dept="${d.id}">+ add</div></td>`;
     });
@@ -1995,30 +2063,80 @@ function refreshConflictPreview(){
 }
 function saveAppt(){
   const v = currentApptFormValues();
-  if(!v.patientId || !v.deptId){ alert('Please choose a patient and department.'); return; }
-  const {hard} = checkConflicts({...v, excludeApptId: editingApptId});
+
+  if(!v.patientId || !v.deptId){
+    alert('Please choose a patient and department.');
+    return;
+  }
+
+  const {hard, conflictApptIds} = checkConflicts({
+    ...v,
+    excludeApptId: editingApptId
+  });
+
+  let conflictOverride = false;
+  let conflictMessages = [];
+  let conflictAppointmentIds = [];
+
   if(hard.length){
     const overrideBox = document.getElementById('afOverride');
+
     if(!overrideBox || !overrideBox.checked){
       toast('Resolve the conflict, or tick "save anyway"');
       return;
     }
+
+    // User explicitly accepted the conflict.
+    conflictOverride = true;
+    conflictMessages = hard.slice();
+    conflictAppointmentIds = conflictApptIds.slice();
   }
+
   const authUser = window.currentFirebaseUser || auth.currentUser;
-  const username = authUser ? (authUser.email||'').split('@')[0] : (operator.name||'');
+  const username = authUser
+    ? (authUser.email||'').split('@')[0]
+    : (operator.name||'');
+
   const profile = window.currentStaffProfile || null;
   const displayName = profile?.name || operator.name || username;
   const role = profile?.role || operator.role || '';
   const now = Date.now();
-  const data = {...v, medicine: document.getElementById('afMedicine').value.trim(), createdBy: displayName, createdByRole: role, createdByUid: authUser?.uid||'', updatedBy: displayName, updatedByRole: role, updatedByUid: authUser?.uid||'', updatedAt: now};
+
+  const data = {
+    ...v,
+    medicine: document.getElementById('afMedicine').value.trim(),
+    conflictOverride,
+    conflictMessages,
+    conflictApptIds: conflictAppointmentIds,
+    createdBy: displayName,
+    createdByRole: role,
+    createdByUid: authUser?.uid||'',
+    updatedBy: displayName,
+    updatedByRole: role,
+    updatedByUid: authUser?.uid||'',
+    updatedAt: now
+  };
+
   if(editingApptId){
     const existing = state.appointments.find(x=>x.id===editingApptId);
-    if(existing){ Object.assign(existing, data); }
+
+    if(existing){
+      Object.assign(existing, data);
+    }
+
   } else {
-    state.appointments.push({id:uid(), createdAt:now, ...data});
+
+    state.appointments.push({
+      id:uid(),
+      createdAt:now,
+      ...data
+    });
+
   }
+
   document.getElementById('modalAppt').classList.remove('show');
-  persist(); toast('Treatment saved');
+  persist();
+  toast(conflictOverride ? 'Treatment saved with conflict warning' : 'Treatment saved');
 }
 function deleteAppt(){
   if(!editingApptId) return;
