@@ -424,6 +424,48 @@ body.login-locked .container { display:none !important; }
           <p class="hint" id="storageStat" style="margin-top:12px;"></p>
         </div>
       </div>
+      <!-- ACTIVITY / AUDIT LOG -->
+      <div class="panel" id="activityLogPanel" style="grid-column:1 / -1;">
+        <div class="panel-head">
+          <h2>Activity Log</h2>
+          <div class="row" style="gap:6px;">
+            <select id="activityFilter" style="min-width:150px;">
+              <option value="ALL">All Activity</option>
+              <option value="LOGIN">Logins</option>
+              <option value="APPOINTMENT">Treatments</option>
+              <option value="PATIENT">Patients</option>
+              <option value="CONFLICT">Conflicts</option>
+            </select>
+            <select id="activityPeriod" style="min-width:130px;">
+              <option value="TODAY">Today</option>
+              <option value="YESTERDAY">Yesterday</option>
+              <option value="7DAYS">Last 7 Days</option>
+              <option value="ALL">All</option>
+            </select>
+            <button class="btn btn-outline btn-sm" id="btnRefreshActivity">⟳ Refresh</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="activityLogStatus" class="hint" style="margin-bottom:10px;"></div>
+          <div style="overflow:auto;">
+            <table class="grid" id="activityLogTable">
+              <thead>
+                <tr>
+                  <th style="min-width:145px;">Date / Time</th>
+                  <th style="min-width:150px;">Staff</th>
+                  <th style="min-width:80px;">Role</th>
+                  <th style="min-width:130px;">Action</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody id="activityLogBody">
+                <tr><td colspan="5" class="detail-empty">Loading activity…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-head"><h2>Authorized Login Users</h2></div>
         <div class="panel-body">
@@ -581,9 +623,13 @@ import { db, auth } from "./js/firebase.js";
 import {
   doc,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
+  addDoc,
+  collection,
+  serverTimestamp,
   runTransaction,
   onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
@@ -777,6 +823,38 @@ function unlockApp(user, profile){
   updateAdminTabs();
 }
 
+/* ================= Activity / Audit Log ================= */
+
+async function addActivity(action, summary, details = {}) {
+  try {
+    const user = window.currentFirebaseUser || auth.currentUser;
+    if (!user) return;
+
+    const profile = window.currentStaffProfile || null;
+
+    const username =
+      profile?.name ||
+      (user.email || '').split('@')[0] ||
+      'Unknown User';
+
+    const role =
+      profile?.role ||
+      '';
+
+    await addDoc(collection(db, 'activityLog'), {
+      timestamp: serverTimestamp(),
+      uid: user.uid,
+      username,
+      role,
+      action,
+      summary,
+      details
+    });
+  } catch (err) {
+    console.error('Activity log error:', err);
+  }
+}
+
 const ADMIN_UID = 'ga2PuooJcPQoagypK9Ig8acsNWa2';
 
 function isAdmin(){
@@ -846,13 +924,28 @@ loginForm.addEventListener('submit', async (e)=>{
     // If a configured user list exists and this account is not listed, block it.
     // If the list cannot yet be read, allow the authenticated account to proceed;
     // the HOD/RMO management screen can configure it afterward.
-    unlockApp(cred.user, profile || {
+    const activeProfile = profile || {
       id:'firebase_'+cred.user.uid,
       login:username.trim().toLowerCase(),
       name:username.trim(),
       role:'RMO',
       active:true
-    });
+    };
+
+    unlockApp(cred.user, activeProfile);
+
+    window.currentStaffProfile = activeProfile;
+
+    await addActivity(
+      'LOGIN',
+      `${activeProfile.name || username} logged in`,
+      {
+        login: username.trim().toLowerCase(),
+        role: activeProfile.role || '',
+        uid: cred.user.uid
+      }
+    );
+
     document.getElementById('loginPassword').value='';
   }catch(err){
     console.error('Login error:',err);
@@ -896,6 +989,10 @@ onAuthStateChanged(auth, async user=>{
     const profile = await findAuthorizedProfile(username);
 
     unlockApp(user, profile);
+
+    // Now that Firebase authentication is ready,
+    // load the shared scheduler data from Firestore.
+    await boot();
 
   } else {
 
@@ -1060,9 +1157,10 @@ function escapeHtml(s){ return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;'
 /* ================= Conflict engine ================= */
 // Returns {hard:[messages], soft:[messages]}
 function checkConflicts({patientId, areaId, therapistIds, date, time, duration, excludeApptId}){
-  const hard = [], soft = [];
+  const hard = [];
+  const soft = [];
   const conflictApptIds = [];
-  const dayAppts = apptsFor(date).filter(a=>a.id!==excludeApptId);
+  const dayAppts = apptsFor(date).filter(a => a.id !== excludeApptId);
 
   function addConflictAppointment(a){
     if(a && a.id && !conflictApptIds.includes(a.id)){
@@ -1070,82 +1168,110 @@ function checkConflicts({patientId, areaId, therapistIds, date, time, duration, 
     }
   }
 
-  // 1. patient double-booked (any department)
-  dayAppts.filter(a=>a.patientId===patientId).forEach(a=>{
-    if(overlaps(time,duration,a.time,a.duration)){
-      addConflictAppointment(a);
+  // 1. Patient double-booked
+  dayAppts
+    .filter(a => a.patientId === patientId)
+    .forEach(a => {
+      if(overlaps(time, duration, a.time, a.duration)){
+        addConflictAppointment(a);
 
-      const d = dept(a.deptId);
-      hard.push(`This patient already has ${d?d.name:'a treatment'} at ${fmtTime12(a.time)} (${a.duration||'?'} min) — a patient can only be in one treatment at a time.`);
-    }
-  });
+        const d = dept(a.deptId);
+        hard.push(
+          `This patient already has ${d ? d.name : 'a treatment'} at ${fmtTime12(a.time)} (${a.duration || '?'} min) — a patient can only be in one treatment at a time.`
+        );
+      }
+    });
 
-  // 2. area capacity
+  // 2. Area capacity
   if(areaId){
     const ar = area(areaId);
-    const cap = ar ? Number(ar.capacity||1) : 1;
+    const cap = ar ? Number(ar.capacity || 1) : 1;
 
     const overlapping = dayAppts.filter(
-      a=>a.areaId===areaId && overlaps(time,duration,a.time,a.duration)
+      a => a.areaId === areaId &&
+           overlaps(time, duration, a.time, a.duration)
     );
 
     if(overlapping.length >= cap){
       overlapping.forEach(addConflictAppointment);
 
-      hard.push(`${ar?ar.name:'This area'} is already booked to capacity (${cap}) at this time — ${overlapping.length} treatment(s) already scheduled there then.`);
+      hard.push(
+        `${ar ? ar.name : 'This area'} is already booked to capacity (${cap}) at this time — ${overlapping.length} treatment(s) already scheduled there then.`
+      );
     }
   }
 
-  // 3. therapist double-booked
-  (therapistIds||[]).forEach(tid=>{
+  // 3. Therapist double-booked
+  (therapistIds || []).forEach(tid => {
     const currentTherapist = therapist(tid);
     const currentName = (currentTherapist?.name || '').trim().toLowerCase();
 
-    const clashes = dayAppts.filter(a=>{
-      if(!overlaps(time,duration,a.time,a.duration)) return false;
+    const clashes = dayAppts.filter(a => {
+      if(!overlaps(time, duration, a.time, a.duration)) return false;
 
-      return (a.therapistIds||[]).some(existingTid=>{
+      return (a.therapistIds || []).some(existingTid => {
         if(existingTid === tid) return true;
 
         const existingTherapist = therapist(existingTid);
-        const existingName = (existingTherapist?.name || '').trim().toLowerCase();
+        const existingName =
+          (existingTherapist?.name || '').trim().toLowerCase();
 
-        return currentName && existingName && currentName === existingName;
+        return (
+          currentName &&
+          existingName &&
+          currentName === existingName
+        );
       });
     });
 
-    clashes.forEach(clash=>{
+    clashes.forEach(clash => {
       addConflictAppointment(clash);
 
       const t = currentTherapist;
       const d = dept(clash.deptId);
       const p = patient(clash.patientId);
 
-      hard.push(`${t?t.name:'This therapist'} is already assigned to ${p?p.name:'another patient'} (${d?d.name:''}) at ${fmtTime12(clash.time)} — can't double-book a therapist.`);
+      hard.push(
+        `${t ? t.name : 'This therapist'} is already assigned to ${p ? p.name : 'another patient'} (${d ? d.name : ''}) at ${fmtTime12(clash.time)} — can't double-book a therapist.`
+      );
     });
   });
 
-  // 4. lunch break — soft
+  // 4. Lunch break — soft warning
   const {lunchStart, lunchEnd} = state.settings;
-  if(lunchStart && lunchEnd && overlaps(
-    time,
-    duration,
-    lunchStart,
-    toMin(lunchEnd)-toMin(lunchStart)
-  )){
-    soft.push(`This falls inside the lunch break (${fmtTime12(lunchStart)}–${fmtTime12(lunchEnd)}).`);
+
+  if(
+    lunchStart &&
+    lunchEnd &&
+    overlaps(
+      time,
+      duration,
+      lunchStart,
+      toMin(lunchEnd) - toMin(lunchStart)
+    )
+  ){
+    soft.push(
+      `This falls inside the lunch break (${fmtTime12(lunchStart)}–${fmtTime12(lunchEnd)}).`
+    );
   }
 
-  // 5. outside clinic hours — soft
+  // 5. Outside clinic hours — soft warning
   const {dayStart, dayEnd} = state.settings;
+
   if(
     toMin(time) < toMin(dayStart) ||
-    (toMin(time)+Number(duration||0)) > toMin(dayEnd)
+    (toMin(time) + Number(duration || 0)) > toMin(dayEnd)
   ){
-    soft.push(`This is outside normal clinic hours (${fmtTime12(dayStart)}–${fmtTime12(dayEnd)}).`);
+    soft.push(
+      `This is outside normal clinic hours (${fmtTime12(dayStart)}–${fmtTime12(dayEnd)}).`
+    );
   }
 
-  return {hard, soft, conflictApptIds};
+  return {
+    hard,
+    soft,
+    conflictApptIds
+  };
 }
 
 /* ================= Selections ================= */
@@ -1177,55 +1303,85 @@ function persist(){
 
 /* ================= Init / boot ================= */
 async function boot(){
-const remote = await remoteLoad();
+
+  // Wait for Firebase Authentication to finish restoring the session.
+  // Never load or save scheduler data before authentication.
+  if(!window.currentFirebaseUser){
+    return;
+  }
+
+  const remote = await remoteLoad();
   const local = localLoad();
-  if(remote && local){ state = remote.updatedAt >= local.updatedAt ? remote : local; }
-  else { state = remote || local || defaultState(); }
-if(!state.version || state.version < 2){ state = defaultState(); }
 
-if(!Array.isArray(state.authorizedUsers)){
-  state.authorizedUsers = [{id:"login_test", login:"test", name:"Test User", role:"RMO", active:true}];
-}
+  // Firebase is the shared source of truth.
+  // Never overwrite valid Firebase data with local/default data on startup.
+  if(remote){
+    state = remote;
+  }else if(local){
+    state = local;
+  }else{
+    state = defaultState();
+  }
 
-localSave(state);
-await remoteSave(state);
+  if(!state.version || state.version < 2){
+    state = defaultState();
+  }
 
-onSnapshot(doc(db, "scheduler", "main"), (snapshot) => {
+  if(!Array.isArray(state.authorizedUsers)){
+    state.authorizedUsers = [
+      {
+        id:"login_test",
+        login:"test",
+        name:"Test User",
+        role:"RMO",
+        active:true
+      }
+    ];
+  }
 
-    if (!snapshot.exists()) return;
+  localSave(state);
+
+  onSnapshot(doc(db, "scheduler", "main"), (snapshot) => {
+
+    if(!snapshot.exists()) return;
 
     const data = snapshot.data();
     const schedule = data.schedule;
 
-    if (!schedule) return;
+    if(!schedule) return;
 
     const remoteState = {
-        ...schedule,
-        updatedAt: data.updatedAt || schedule.updatedAt || 0
+      ...schedule,
+      updatedAt: data.updatedAt || schedule.updatedAt || 0
     };
 
-    if (
-        !state ||
-        remoteState.updatedAt > (state.updatedAt || 0)
-    ) {
-        state = remoteState;
-        localSave(state);
-        renderAll();
-        updateSyncDot();
+    if(
+      !state ||
+      remoteState.updatedAt > (state.updatedAt || 0)
+    ){
+      state = remoteState;
+      localSave(state);
+      renderAll();
+      updateSyncDot();
     }
 
-});
+  });
+
   loadSampleIfEmpty();
   wireUI();
+
   document.getElementById('activeDate').value = activeDate;
+
   renderAll();
   updateSyncDot();
   updateOperatorLabel();
+
   if(hasShared()){
     setInterval(pullRemote, 20000);
     window.addEventListener('focus', pullRemote);
   }
 }
+
 async function pullRemote(){
   if(!hasShared()) return;
   const remote = await remoteLoad();
@@ -1318,9 +1474,36 @@ function wireUI(){
   document.getElementById('btnDeletePatient').onclick = ()=>{
     const p = patient(selectedPatientId); if(!p) return;
     if(!confirm(`Remove ${p.name} and all their scheduled treatments?`)) return;
+
+    const authUser = window.currentFirebaseUser || auth.currentUser;
+    const profile = window.currentStaffProfile || null;
+    const username = authUser
+      ? (authUser.email||'').split('@')[0]
+      : (operator.name||'');
+    const displayName = profile?.name || operator.name || username;
+    const role = profile?.role || operator.role || '';
+
+    const deletedAppointmentCount =
+      state.appointments.filter(x=>x.patientId===p.id).length;
+
+    addActivity(
+      'DELETE_PATIENT',
+      `${displayName} removed patient ${p.name}`,
+      {
+        patientId: p.id,
+        patientName: p.name || '',
+        room: p.room || '',
+        type: p.type || '',
+        scheduledTreatmentCount: deletedAppointmentCount,
+        role
+      }
+    );
+
     state.patients = state.patients.filter(x=>x.id!==p.id);
     state.appointments = state.appointments.filter(x=>x.patientId!==p.id);
-    selectedPatientId = null; persist(); toast('Patient removed');
+    selectedPatientId = null;
+    persist();
+    toast('Patient removed');
   };
   document.getElementById('btnAddAppt').onclick = ()=>{
     if(!selectedPatientId){ toast('Select a patient first'); return; }
@@ -1369,6 +1552,11 @@ function wireUI(){
   document.getElementById('printDeptSelect').addEventListener('change', e=>{ printDeptId=e.target.value; renderPrint(); });
   document.getElementById('printPatientSelect').addEventListener('change', e=>{ printPatientId=e.target.value; renderPrint(); });
   document.getElementById('btnPrint').onclick = ()=>window.print();
+
+  // activity / audit log
+  document.getElementById('btnRefreshActivity').onclick = renderActivityLog;
+  document.getElementById('activityFilter').addEventListener('change', renderActivityLog);
+  document.getElementById('activityPeriod').addEventListener('change', renderActivityLog);
 
   // settings
   document.getElementById('btnAddDept').onclick = ()=>{
@@ -1442,21 +1630,20 @@ function renderGrid(){
       cellAppts.forEach(a=>{
         const ar = area(a.areaId);
         const ths = (a.therapistIds||[]).map(id=>therapist(id)?.name).filter(Boolean).join(', ');
-        // Show CONFLICT on this appointment if it was explicitly overridden,
-        // or if another appointment that was overridden identifies this appointment
-        // as one of the appointments involved in the conflict.
-        let isConflict = !!a.conflictOverride;
+        // Always calculate the CURRENT conflict state from the schedule.
+        // Do not rely only on stored conflictOverride/conflictApptIds because
+        // those can become stale after an appointment is edited, moved or deleted.
+        const liveConflict = checkConflicts({
+          patientId: a.patientId,
+          areaId: a.areaId,
+          therapistIds: a.therapistIds || [],
+          date: a.date,
+          time: a.time,
+          duration: a.duration,
+          excludeApptId: a.id
+        });
 
-        if(!isConflict){
-          const relatedOverride = todays.some(other =>
-            other.id !== a.id &&
-            other.conflictOverride &&
-            Array.isArray(other.conflictApptIds) &&
-            other.conflictApptIds.includes(a.id)
-          );
-
-          isConflict = relatedOverride;
-        }
+        const isConflict = liveConflict.hard.length > 0;
 
         const conflictClass = isConflict ? ' conflict' : '';
         const conflictBadge = isConflict
@@ -1916,11 +2103,70 @@ function openPatientModal(id){
 function savePatient(){
   const name = document.getElementById('pfName').value.trim();
   if(!name){ alert('Please enter a patient name.'); return; }
-  const data = {room:document.getElementById('pfRoom').value.trim(), name, type:document.getElementById('pfType').value, status:document.getElementById('pfStatus').value, notes:document.getElementById('pfNotes').value.trim()};
-  if(editingPatientId){ Object.assign(patient(editingPatientId), data); }
-  else { const np={id:uid(), ...data}; state.patients.push(np); selectedPatientId=np.id; }
+
+  const data = {
+    room:document.getElementById('pfRoom').value.trim(),
+    name,
+    type:document.getElementById('pfType').value,
+    status:document.getElementById('pfStatus').value,
+    notes:document.getElementById('pfNotes').value.trim()
+  };
+
+  const authUser = window.currentFirebaseUser || auth.currentUser;
+  const profile = window.currentStaffProfile || null;
+  const username = authUser
+    ? (authUser.email||'').split('@')[0]
+    : (operator.name||'');
+  const displayName = profile?.name || operator.name || username;
+  const role = profile?.role || operator.role || '';
+
+  if(editingPatientId){
+
+    const existing = patient(editingPatientId);
+    if(existing){
+      Object.assign(existing, data);
+
+      addActivity(
+        'UPDATE_PATIENT',
+        `${displayName} updated patient ${name}`,
+        {
+          patientId: existing.id,
+          patientName: name,
+          room: data.room,
+          type: data.type,
+          status: data.status,
+          role
+        }
+      );
+    }
+
+  } else {
+
+    const np = {
+      id:uid(),
+      ...data
+    };
+
+    state.patients.push(np);
+    selectedPatientId=np.id;
+
+    addActivity(
+      'CREATE_PATIENT',
+      `${displayName} added patient ${name}`,
+      {
+        patientId: np.id,
+        patientName: name,
+        room: data.room,
+        type: data.type,
+        status: data.status,
+        role
+      }
+    );
+  }
+
   document.getElementById('modalPatient').classList.remove('show');
-  persist(); toast('Patient saved');
+  persist();
+  toast('Patient saved');
 }
 
 /* ================= MODAL: APPOINTMENT ================= */
@@ -2052,16 +2298,75 @@ function currentApptFormValues(){
 }
 function refreshConflictPreview(){
   const v = currentApptFormValues();
-  const {hard, soft} = checkConflicts({...v, excludeApptId: editingApptId});
+
+  const {hard, soft, conflictApptIds} = checkConflicts({
+    ...v,
+    excludeApptId: editingApptId
+  });
+
   const box = document.getElementById('conflictArea');
+  const existing = editingApptId
+    ? state.appointments.find(a => a.id === editingApptId)
+    : null;
+
   let html = '';
+
+  // Always show the CURRENT live conflict.
   if(hard.length){
-    html += `<div class="conflict-box"><b>⚠ This booking conflicts:</b><ul>${hard.map(m=>`<li>${escapeHtml(m)}</li>`).join('')}</ul>
-      <div class="override-row"><input type="checkbox" id="afOverride"><label for="afOverride">I understand — save anyway</label></div></div>`;
+    html += `
+      <div class="conflict-box">
+        <b>⚠ This booking conflicts:</b>
+        <ul>
+          ${hard.map(m => `<li>${escapeHtml(m)}</li>`).join('')}
+        </ul>
+
+        <div class="override-row">
+          <input type="checkbox" id="afOverride" ${
+            existing?.conflictOverride ? 'checked' : ''
+          }>
+          <label for="afOverride">
+            I understand — save anyway
+          </label>
+        </div>
+      </div>
+    `;
   }
+
+  // If this appointment was previously saved as an overridden conflict,
+  // show that information even if the current conflict engine cannot
+  // reproduce the original conflict for some reason.
+  if(
+    existing?.conflictOverride &&
+    !hard.length
+  ){
+    const savedMessages = Array.isArray(existing.conflictMessages)
+      ? existing.conflictMessages
+      : [];
+
+    html += `
+      <div class="conflict-box">
+        <b>⚠ Previously accepted conflict</b>
+        ${
+          savedMessages.length
+            ? `<ul>${savedMessages.map(m => `<li>${escapeHtml(m)}</li>`).join('')}</ul>`
+            : '<div>This treatment was previously saved with a conflict override.</div>'
+        }
+
+        <div class="hint" style="margin-top:8px;">
+          The original conflict is no longer detected with the current schedule.
+        </div>
+      </div>
+    `;
+  }
+
   if(soft.length){
-    html += `<div class="soft-warn-box">${soft.map(m=>'⏰ '+escapeHtml(m)).join('<br>')}</div>`;
+    html += `
+      <div class="soft-warn-box">
+        ${soft.map(m => '⏰ ' + escapeHtml(m)).join('<br>')}
+      </div>
+    `;
   }
+
   box.innerHTML = html;
 }
 function saveAppt(){
@@ -2072,9 +2377,345 @@ function saveAppt(){
     return;
   }
 
-  const {hard, conflictApptIds} = checkConflicts({
+  const existing = editingApptId
+    ? state.appointments.find(x => x.id === editingApptId)
+    : null;
+
+  const {
+    hard,
+    conflictApptIds
+  } = checkConflicts({
     ...v,
     excludeApptId: editingApptId
+  });
+
+  /*
+   * Conflict state rules:
+   *
+   * 1. If there is a CURRENT conflict, the user must explicitly accept it.
+   * 2. If the appointment was already overridden and the user has not
+   *    changed the conflicting booking, preserve that acceptance.
+   * 3. If the conflict is gone, clear the old conflict state.
+   */
+
+  let conflictOverride = false;
+  let conflictMessages = [];
+  let conflictAppointmentIds = [];
+
+  if(hard.length){
+
+    const overrideBox = document.getElementById('afOverride');
+
+    const currentConflictIds = Array.isArray(conflictApptIds)
+      ? conflictApptIds.slice().sort()
+      : [];
+
+    const previousConflictIds =
+      Array.isArray(existing?.conflictApptIds)
+        ? existing.conflictApptIds.slice().sort()
+        : [];
+
+    // A previous override is valid only when the same conflicting
+    // appointment(s) are still involved. If the user changes the
+    // appointment into a different conflict, explicit approval is required.
+    const sameConflict =
+      !!existing?.conflictOverride &&
+      currentConflictIds.length > 0 &&
+      currentConflictIds.length === previousConflictIds.length &&
+      currentConflictIds.every(
+        (id, index) => id === previousConflictIds[index]
+      );
+
+    const explicitlyAccepted =
+      !!overrideBox?.checked;
+
+    if(!explicitlyAccepted && !sameConflict){
+      toast('Resolve the conflict, or tick "save anyway"');
+      return;
+    }
+
+    conflictOverride = true;
+    conflictMessages = hard.slice();
+    conflictAppointmentIds = conflictApptIds.slice();
+
+  } else {
+
+    // No current conflict. Remove stale conflict state.
+    conflictOverride = false;
+    conflictMessages = [];
+    conflictAppointmentIds = [];
+  }
+
+  const authUser = window.currentFirebaseUser || auth.currentUser;
+
+  const username = authUser
+    ? (authUser.email || '').split('@')[0]
+    : (operator.name || '');
+
+  const profile = window.currentStaffProfile || null;
+
+  const displayName =
+    profile?.name ||
+    operator.name ||
+    username;
+
+  const role =
+    profile?.role ||
+    operator.role ||
+    '';
+
+  const now = Date.now();
+  const medicine =
+    document.getElementById('afMedicine').value.trim();
+
+  const patient =
+    state.patients.find(p => p.id === v.patientId);
+
+  const dept =
+    state.departments.find(d => d.id === v.deptId);
+
+  const patientName =
+    patient?.name || 'Unknown patient';
+
+  const deptName =
+    dept?.name || 'Unknown department';
+
+  if(existing){
+
+    // Preserve the original creator.
+    Object.assign(existing, {
+      ...v,
+      medicine,
+
+      conflictOverride,
+      conflictMessages,
+      conflictApptIds: conflictAppointmentIds,
+
+      updatedBy: displayName,
+      updatedByRole: role,
+      updatedByUid: authUser?.uid || '',
+      updatedAt: now
+    });
+
+    if(!existing.createdBy){
+      existing.createdBy = displayName;
+      existing.createdByRole = role;
+      existing.createdByUid = authUser?.uid || '';
+    }
+
+    addActivity(
+      'UPDATE_APPOINTMENT',
+      `${displayName} updated treatment for ${patientName}`,
+      {
+        appointmentId: existing.id,
+        patientId: v.patientId,
+        patientName,
+        department: deptName,
+        date: v.date || '',
+        time: v.time || '',
+        role,
+        conflictOverride,
+        conflictMessages: conflictOverride
+          ? conflictMessages
+          : []
+      }
+    );
+
+    if(conflictOverride){
+      addActivity(
+        'CONFLICT_OVERRIDE',
+        `${displayName} saved a conflicting treatment for ${patientName}`,
+        {
+          appointmentId: existing.id,
+          patientId: v.patientId,
+          patientName,
+          department: deptName,
+          date: v.date || '',
+          time: v.time || '',
+          conflictAppointmentIds,
+          conflictMessages
+        }
+      );
+    }
+
+  } else {
+
+    const newAppointment = {
+      id: uid(),
+      createdAt: now,
+      ...v,
+      medicine,
+
+      conflictOverride,
+      conflictMessages,
+      conflictApptIds: conflictAppointmentIds,
+
+      createdBy: displayName,
+      createdByRole: role,
+      createdByUid: authUser?.uid || '',
+
+      updatedBy: displayName,
+      updatedByRole: role,
+      updatedByUid: authUser?.uid || '',
+      updatedAt: now
+    };
+
+    state.appointments.push(newAppointment);
+
+    addActivity(
+      'CREATE_APPOINTMENT',
+      `${displayName} added treatment for ${patientName}`,
+      {
+        appointmentId: newAppointment.id,
+        patientId: v.patientId,
+        patientName,
+        department: deptName,
+        date: v.date || '',
+        time: v.time || '',
+        role,
+        conflictOverride,
+        conflictMessages: conflictOverride
+          ? conflictMessages
+          : []
+      }
+    );
+
+    if(conflictOverride){
+      addActivity(
+        'CONFLICT_OVERRIDE',
+        `${displayName} saved a conflicting treatment for ${patientName}`,
+        {
+          appointmentId: newAppointment.id,
+          patientId: v.patientId,
+          patientName,
+          department: deptName,
+          date: v.date || '',
+          time: v.time || '',
+          conflictAppointmentIds,
+          conflictMessages
+        }
+      );
+    }
+  }
+
+  document.getElementById('modalAppt').classList.remove('show');
+
+  persist();
+
+  toast(
+    conflictOverride
+      ? 'Treatment saved with conflict warning'
+      : 'Treatment saved'
+  );
+}
+
+
+
+function deleteAppt(){
+  if(!editingApptId) return;
+
+  if(!confirm('Delete this scheduled treatment?')) return;
+
+  const existing = state.appointments.find(
+    x => x.id === editingApptId
+  );
+
+  if(!existing) return;
+
+  const authUser =
+    window.currentFirebaseUser || auth.currentUser;
+
+  const profile =
+    window.currentStaffProfile || null;
+
+  const username = authUser
+    ? (authUser.email || '').split('@')[0]
+    : (operator.name || '');
+
+  const displayName =
+    profile?.name ||
+    operator.name ||
+    username;
+
+  const role =
+    profile?.role ||
+    operator.role ||
+    '';
+
+  const patient =
+    state.patients.find(p => p.id === existing.patientId);
+
+  const dept =
+    state.departments.find(d => d.id === existing.deptId);
+
+  addActivity(
+    'DELETE_APPOINTMENT',
+    `${displayName} deleted treatment for ${patient?.name || 'Unknown patient'}`,
+    {
+      appointmentId: existing.id,
+      patientId: existing.patientId || '',
+      patientName: patient?.name || 'Unknown patient',
+      department: dept?.name || 'Unknown department',
+      date: existing.date || '',
+      time: existing.time || '',
+      role
+    }
+  );
+
+  state.appointments = state.appointments.filter(
+    x => x.id !== editingApptId
+  );
+
+  editingApptId = null;
+
+  document.getElementById('modalAppt').classList.remove('show');
+
+  persist();
+
+  toast('Treatment deleted');
+}
+
+function copyApptToTomorrow(){
+  if(!editingApptId) return;
+
+  const source =
+    state.appointments.find(x => x.id === editingApptId);
+
+  if(!source) return;
+
+  const sourceDate =
+    new Date(source.date + "T00:00:00");
+
+  sourceDate.setDate(sourceDate.getDate() + 1);
+
+  const tomorrow =
+    sourceDate.getFullYear() + "-" +
+    String(sourceDate.getMonth() + 1).padStart(2, "0") + "-" +
+    String(sourceDate.getDate()).padStart(2, "0");
+
+  /*
+   * IMPORTANT:
+   * Copying creates a NEW appointment.
+   * Therefore the destination date must be checked independently.
+   */
+  const destinationValues = {
+    patientId: source.patientId,
+    deptId: source.deptId,
+    areaId: source.areaId || null,
+    therapistIds: Array.isArray(source.therapistIds)
+      ? source.therapistIds.slice()
+      : [],
+    date: tomorrow,
+    time: source.time || '09:00',
+    duration: Number(source.duration || 45)
+  };
+
+  const {
+    hard,
+    conflictApptIds
+  } = checkConflicts({
+    ...destinationValues,
+    excludeApptId: null
   });
 
   let conflictOverride = false;
@@ -2082,114 +2723,270 @@ function saveAppt(){
   let conflictAppointmentIds = [];
 
   if(hard.length){
-    const overrideBox = document.getElementById('afOverride');
 
-    if(!overrideBox || !overrideBox.checked){
-      toast('Resolve the conflict, or tick "save anyway"');
+    const proceed = confirm(
+      'The copied treatment has a conflict tomorrow:\n\n' +
+      hard.join('\n\n') +
+      '\n\nDo you want to copy it anyway?'
+    );
+
+    if(!proceed){
+      toast('Copy cancelled because of conflict');
       return;
     }
 
-    // User explicitly accepted the conflict.
     conflictOverride = true;
     conflictMessages = hard.slice();
     conflictAppointmentIds = conflictApptIds.slice();
   }
 
-  const authUser = window.currentFirebaseUser || auth.currentUser;
+  const authUser =
+    window.currentFirebaseUser || auth.currentUser;
+
+  const profile =
+    window.currentStaffProfile || null;
+
   const username = authUser
-    ? (authUser.email||'').split('@')[0]
-    : (operator.name||'');
+    ? (authUser.email || '').split('@')[0]
+    : (operator.name || '');
 
-  const profile = window.currentStaffProfile || null;
-  const displayName = profile?.name || operator.name || username;
-  const role = profile?.role || operator.role || '';
+  const displayName =
+    profile?.name ||
+    operator.name ||
+    username;
+
+  const role =
+    profile?.role ||
+    operator.role ||
+    '';
+
   const now = Date.now();
-
-  const data = {
-    ...v,
-    medicine: document.getElementById('afMedicine').value.trim(),
-    conflictOverride,
-    conflictMessages,
-    conflictApptIds: conflictAppointmentIds,
-    createdBy: displayName,
-    createdByRole: role,
-    createdByUid: authUser?.uid||'',
-    updatedBy: displayName,
-    updatedByRole: role,
-    updatedByUid: authUser?.uid||'',
-    updatedAt: now
-  };
-
-  if(editingApptId){
-    const existing = state.appointments.find(x=>x.id===editingApptId);
-
-    if(existing){
-      Object.assign(existing, data);
-    }
-
-  } else {
-
-    state.appointments.push({
-      id:uid(),
-      createdAt:now,
-      ...data
-    });
-
-  }
-
-  document.getElementById('modalAppt').classList.remove('show');
-  persist();
-  toast(conflictOverride ? 'Treatment saved with conflict warning' : 'Treatment saved');
-}
-function copyApptToTomorrow(){
-  if(!editingApptId) return;
-
-  const source = state.appointments.find(x=>x.id===editingApptId);
-  if(!source) return;
-
-  const sourceDate = new Date(source.date + "T00:00:00");
-  sourceDate.setDate(sourceDate.getDate() + 1);
-
-  const tomorrow = sourceDate.getFullYear() + "-" +
-    String(sourceDate.getMonth()+1).padStart(2,"0") + "-" +
-    String(sourceDate.getDate()).padStart(2,"0");
 
   const copied = {
     ...source,
+
     id: uid(),
-    date: tomorrow,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
 
-    // The copied appointment is a new booking.
-    // Do not carry the old conflict status into tomorrow.
-    conflictOverride: false,
-    conflictMessages: [],
-    conflictApptIds: [],
+    ...destinationValues,
 
-    createdBy: source.createdBy || "",
-    createdByRole: source.createdByRole || "",
-    createdByUid: source.createdByUid || "",
-    updatedBy: source.updatedBy || "",
-    updatedByRole: source.updatedByRole || "",
-    updatedByUid: source.updatedByUid || ""
+    createdAt: now,
+    updatedAt: now,
+
+    conflictOverride,
+    conflictMessages,
+    conflictApptIds: conflictAppointmentIds,
+
+    // Copying is a new booking, but retain the original creator
+    // information for traceability.
+    createdBy: source.createdBy || '',
+    createdByRole: source.createdByRole || '',
+    createdByUid: source.createdByUid || '',
+
+    // The person performing Copy to Tomorrow becomes the updater.
+    updatedBy: displayName,
+    updatedByRole: role,
+    updatedByUid: authUser?.uid || ''
   };
 
   state.appointments.push(copied);
 
+  const patient =
+    state.patients.find(p => p.id === source.patientId);
+
+  const dept =
+    state.departments.find(d => d.id === source.deptId);
+
+  addActivity(
+    'COPY_APPOINTMENT',
+    `${displayName} copied treatment for ${patient?.name || 'Unknown patient'}`,
+    {
+      sourceAppointmentId: source.id,
+      copiedAppointmentId: copied.id,
+      patientId: source.patientId || '',
+      patientName: patient?.name || 'Unknown patient',
+      department: dept?.name || 'Unknown department',
+      sourceDate: source.date || '',
+      targetDate: tomorrow,
+      time: source.time || '',
+      role,
+      conflictOverride,
+      conflictMessages: conflictOverride
+        ? conflictMessages
+        : [],
+      conflictAppointmentIds
+    }
+  );
+
+  if(conflictOverride){
+    addActivity(
+      'CONFLICT_OVERRIDE',
+      `${displayName} copied a conflicting treatment for ${patient?.name || 'Unknown patient'}`,
+      {
+        sourceAppointmentId: source.id,
+        copiedAppointmentId: copied.id,
+        patientId: source.patientId || '',
+        patientName: patient?.name || 'Unknown patient',
+        department: dept?.name || 'Unknown department',
+        sourceDate: source.date || '',
+        targetDate: tomorrow,
+        time: source.time || '',
+        conflictAppointmentIds,
+        conflictMessages
+      }
+    );
+  }
+
   persist();
 
   document.getElementById('modalAppt').classList.remove('show');
 
-  toast('Treatment copied to tomorrow');
+  toast(
+    conflictOverride
+      ? 'Treatment copied with conflict warning'
+      : 'Treatment copied to tomorrow'
+  );
 }
+/* ================= ACTIVITY LOG RENDER ================= */
 
-function deleteAppt(){
-  if(!editingApptId) return;
-  if(!confirm('Delete this scheduled treatment?')) return;
-  state.appointments = state.appointments.filter(x=>x.id!==editingApptId);
-  document.getElementById('modalAppt').classList.remove('show');
-  persist(); toast('Treatment deleted');
+async function renderActivityLog(){
+  const panel = document.getElementById("activityLogPanel");
+  const body = document.getElementById("activityLogBody");
+  const status = document.getElementById("activityLogStatus");
+
+  if(!panel || !body || !status) return;
+
+  if(!isAdmin()){
+    panel.style.display = "none";
+    return;
+  }
+
+  panel.style.display = "";
+
+  body.innerHTML = `<tr><td colspan="5" class="detail-empty">Loading activity…</td></tr>`;
+  status.textContent = "Loading activity…";
+
+  try{
+    const snap = await getDocs(collection(db, "activityLog"));
+
+    let rows = [];
+
+    snap.forEach(docSnap=>{
+      const data = docSnap.data() || {};
+      rows.push({
+        id: docSnap.id,
+        ...data
+      });
+    });
+
+    const filter = document.getElementById("activityFilter")?.value || "ALL";
+    const period = document.getElementById("activityPeriod")?.value || "TODAY";
+
+    const now = new Date();
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startYesterday = new Date(startToday);
+    startYesterday.setDate(startYesterday.getDate() - 1);
+    const start7Days = new Date(startToday);
+    start7Days.setDate(start7Days.getDate() - 6);
+
+    rows = rows.filter(item=>{
+      if(filter === "LOGIN" && item.action !== "LOGIN") return false;
+
+      if(filter === "APPOINTMENT" &&
+         !String(item.action || "").includes("APPOINTMENT")){
+        return false;
+      }
+
+      if(filter === "PATIENT" &&
+         !String(item.action || "").includes("PATIENT")){
+        return false;
+      }
+
+      if(filter === "CONFLICT" &&
+         item.action !== "CONFLICT_OVERRIDE"){
+        return false;
+      }
+
+      if(period === "ALL") return true;
+
+      let date = null;
+
+      if(item.timestamp?.toDate){
+        date = item.timestamp.toDate();
+      }else if(item.timestamp){
+        date = new Date(item.timestamp);
+      }
+
+      if(!date || isNaN(date.getTime())) return period === "ALL";
+
+      if(period === "TODAY"){
+        return date >= startToday;
+      }
+
+      if(period === "YESTERDAY"){
+        return date >= startYesterday && date < startToday;
+      }
+
+      if(period === "7DAYS"){
+        return date >= start7Days;
+      }
+
+      return true;
+    });
+
+    rows.sort((a,b)=>{
+      const ta = a.timestamp?.toDate
+        ? a.timestamp.toDate().getTime()
+        : new Date(a.timestamp || 0).getTime();
+
+      const tb = b.timestamp?.toDate
+        ? b.timestamp.toDate().getTime()
+        : new Date(b.timestamp || 0).getTime();
+
+      return tb - ta;
+    });
+
+    if(!rows.length){
+      body.innerHTML = `<tr><td colspan="5" class="detail-empty">No activity found.</td></tr>`;
+      status.textContent = "No activity found for the selected filters.";
+      return;
+    }
+
+    body.innerHTML = rows.map(item=>{
+      const date = item.timestamp?.toDate
+        ? item.timestamp.toDate()
+        : new Date(item.timestamp || 0);
+
+      const dateText = isNaN(date.getTime())
+        ? "—"
+        : date.toLocaleString([], {
+            day:"2-digit",
+            month:"short",
+            year:"numeric",
+            hour:"2-digit",
+            minute:"2-digit"
+          });
+
+      const actionText = String(item.action || "")
+        .replace(/_/g, " ");
+
+      return `
+        <tr>
+          <td>${escapeHtml(dateText)}</td>
+          <td>${escapeHtml(item.username || "Unknown")}</td>
+          <td>${escapeHtml(item.role || "—")}</td>
+          <td>${escapeHtml(actionText)}</td>
+          <td>${escapeHtml(item.summary || "")}</td>
+        </tr>
+      `;
+    }).join("");
+
+    status.textContent = `${rows.length} activity record${rows.length === 1 ? "" : "s"} shown.`;
+
+  }catch(err){
+    console.error("Activity log load error:", err);
+    body.innerHTML = `<tr><td colspan="5" class="detail-empty">Unable to load activity log.</td></tr>`;
+    status.textContent = "Unable to load activity log.";
+  }
 }
 
 /* ================= MASTER RENDER ================= */
@@ -2199,7 +2996,7 @@ function renderAll(){
   if(currentView==='patients'){ renderPatientList(); renderPatientDetail(); }
   if(currentView==='resources'){ renderAreaEditor(); renderTherapistEditor(); }
   if(currentView==='print') renderPrint();
-  if(currentView==='settings'){ renderDeptEditor(); renderSettingsMisc(); }
+  if(currentView==='settings'){ renderDeptEditor(); renderSettingsMisc(); renderActivityLog(); }
 }
 
 boot();
