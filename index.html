@@ -634,6 +634,7 @@ body.login-locked .container { display:none !important; }
     <div class="modal-actions">
       <button class="btn btn-danger" id="afDelete" style="margin-right:auto;display:none;">Delete</button>
       <button class="btn btn-outline" id="afCancelTreatment" style="display:none;">Cancel Treatment</button>
+      <button class="btn btn-outline" id="afRestoreTreatment" style="display:none;">Schedule Again</button>
       <button class="btn btn-outline" id="afCopyTomorrow" style="display:none;">Copy to Tomorrow</button>
       <button class="btn btn-outline" id="afCancel">Cancel</button>
       <button class="btn btn-primary" id="afSave">Save</button>
@@ -1621,6 +1622,7 @@ function wireUI(){
   document.getElementById('afSave').onclick = saveAppt;
   document.getElementById('afDelete').onclick = deleteAppt;
   document.getElementById('afCancelTreatment').onclick = cancelAppt;
+  document.getElementById('afRestoreTreatment').onclick = restoreAppt;
   document.getElementById('afCopyTomorrow').onclick = copyApptToTomorrow;
   document.getElementById('afDept').addEventListener('change', ()=>{
     populateAreaOptions();
@@ -2604,6 +2606,7 @@ function openApptModal(id, prefill){
 
   document.getElementById('afDelete').style.display = a ? 'inline-flex':'none';
   document.getElementById('afCancelTreatment').style.display = a && !a.cancelled ? 'inline-flex':'none';
+  document.getElementById('afRestoreTreatment').style.display = a && a.cancelled ? 'inline-flex':'none';
   document.getElementById('afCopyTomorrow').style.display = a ? 'inline-flex':'none';
   document.getElementById('conflictArea').innerHTML = '';
   document.getElementById('modalAppt').classList.add('show');
@@ -3088,6 +3091,87 @@ function cancelAppt(){
   toast('Treatment cancelled');
 }
 
+function restoreAppt(){
+  if(!editingApptId) return;
+
+  const existing =
+    state.appointments.find(
+      x => x.id === editingApptId
+    );
+
+  if(!existing) return;
+
+  if(!existing.cancelled){
+    toast('Treatment is already active');
+    return;
+  }
+
+  if(!confirm('Schedule this cancelled treatment again?')) return;
+
+  const authUser =
+    window.currentFirebaseUser || auth.currentUser;
+
+  const profile =
+    window.currentStaffProfile || null;
+
+  const username = authUser
+    ? (authUser.email || '').split('@')[0]
+    : (operator.name || '');
+
+  const displayName =
+    profile?.name ||
+    operator.name ||
+    username;
+
+  const role =
+    profile?.role ||
+    operator.role ||
+    '';
+
+  const patient =
+    state.patients.find(
+      p => p.id === existing.patientId
+    );
+
+  const dept =
+    state.departments.find(
+      d => d.id === existing.deptId
+    );
+
+  const now = Date.now();
+
+  Object.assign(existing, {
+    cancelled: false,
+    updatedBy: displayName,
+    updatedByRole: role,
+    updatedByUid: authUser?.uid || '',
+    updatedAt: now
+  });
+
+  addActivity(
+    'RESTORE_APPOINTMENT',
+    `${displayName} scheduled again treatment for ${patient?.name || 'Unknown patient'}`,
+    {
+      appointmentId: existing.id,
+      patientId: existing.patientId || '',
+      patientName: patient?.name || 'Unknown patient',
+      department: dept?.name || 'Unknown department',
+      date: existing.date || '',
+      time: existing.time || '',
+      duration: Number(existing.duration) || 0,
+      role
+    }
+  );
+
+  editingApptId = null;
+
+  document.getElementById('modalAppt').classList.remove('show');
+
+  persist();
+
+  toast('Treatment scheduled again');
+}
+
 function deleteAppt(){
   if(!editingApptId) return;
 
@@ -3245,6 +3329,13 @@ function copyApptToTomorrow(){
     id: uid(),
 
     ...destinationValues,
+
+    // Copying always creates a fresh active treatment.
+    cancelled: false,
+    cancelledAt: null,
+    cancelledBy: '',
+    cancelledByRole: '',
+    cancelledByUid: '',
 
     createdAt: now,
     updatedAt: now,
