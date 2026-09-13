@@ -410,6 +410,30 @@ body.login-locked .container { display:none !important; }
           <p class="hint">Booking inside the lunch break will show a soft reminder, not a hard block, in case of exceptions.</p>
         </div>
       </div>
+      <!-- STAFF DUTY HOURS — ADMIN ONLY -->
+      <div class="panel" id="staffDutyPanel">
+        <div class="panel-head">
+          <h2>Staff Duty Hours</h2>
+        </div>
+        <div class="panel-body">
+
+          <div class="field" style="max-width:220px;margin-bottom:14px;">
+            <label>Duty Date</label>
+            <input type="date" id="staffDutyDate">
+          </div>
+
+          <div id="staffDutySummary"></div>
+
+          <div id="staffDutyEditor"></div>
+
+          <p class="hint">
+            Set each therapist's working days, duty hours and break time.
+            Scheduled treatments count toward used duty time. Cancelled treatments do not count.
+          </p>
+
+        </div>
+      </div>
+
       <div class="panel">
         <div class="panel-head"><h2>Data &amp; Backup</h2></div>
         <div class="panel-body">
@@ -601,6 +625,7 @@ body.login-locked .container { display:none !important; }
       </div>
     </div>
     <div class="field" id="afTherapistWrap"><label>Therapist(s)</label><div class="chip-multi" id="afTherapistChips"></div></div>
+
     <div class="field" id="afMedicineWrap"><label>Treatment / Medicine / Notes</label><textarea id="afMedicine" rows="2" placeholder="e.g. Kottamchukkadi Tailam + Dhanwantaram Tailam"></textarea><div id="medicineSuggestions" class="medicine-suggestions"></div></div>
     <div id="apptStaffMeta" style="margin:10px 0 4px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:12.5px;color:var(--muted);line-height:1.65;display:none;">
       <div><strong>Scheduled by:</strong> <span id="apptCreatedBy">—</span></div>
@@ -608,6 +633,7 @@ body.login-locked .container { display:none !important; }
     </div>
     <div class="modal-actions">
       <button class="btn btn-danger" id="afDelete" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn btn-outline" id="afCancelTreatment" style="display:none;">Cancel Treatment</button>
       <button class="btn btn-outline" id="afCopyTomorrow" style="display:none;">Copy to Tomorrow</button>
       <button class="btn btn-outline" id="afCancel">Cancel</button>
       <button class="btn btn-primary" id="afSave">Save</button>
@@ -1140,6 +1166,38 @@ function dept(id){ return state.departments.find(d=>d.id===id); }
 function area(id){ return state.areas.find(a=>a.id===id); }
 function patient(id){ return state.patients.find(p=>p.id===id); }
 function therapist(id){ return state.therapists.find(t=>t.id===id); }
+
+function defaultStaffDuty(){
+  return {
+    start:"09:00",
+    end:"18:00",
+    breakStart:"13:00",
+    breakEnd:"14:00",
+    workingDays:[1,2,3,4,5,6,7]
+  };
+}
+
+function staffDuty(t){
+  if(!t) return defaultStaffDuty();
+
+  if(!t.duty){
+    t.duty = defaultStaffDuty();
+  }else{
+    const defaults = defaultStaffDuty();
+
+    t.duty.start = t.duty.start || defaults.start;
+    t.duty.end = t.duty.end || defaults.end;
+    t.duty.breakStart = t.duty.breakStart || defaults.breakStart;
+    t.duty.breakEnd = t.duty.breakEnd || defaults.breakEnd;
+
+    if(!Array.isArray(t.duty.workingDays) || t.duty.workingDays.length===0){
+      t.duty.workingDays = [...defaults.workingDays];
+    }
+  }
+
+  return t.duty;
+}
+
 function activeDepts(){ return state.departments.filter(d=>d.active!==false); }
 function activeAreas(){ return state.areas.filter(a=>a.active!==false); }
 function activeTherapists(){ return state.therapists.filter(t=>t.active!==false); }
@@ -1553,6 +1611,7 @@ function wireUI(){
   document.getElementById('afCancel').onclick = ()=>document.getElementById('modalAppt').classList.remove('show');
   document.getElementById('afSave').onclick = saveAppt;
   document.getElementById('afDelete').onclick = deleteAppt;
+  document.getElementById('afCancelTreatment').onclick = cancelAppt;
   document.getElementById('afCopyTomorrow').onclick = copyApptToTomorrow;
   document.getElementById('afDept').addEventListener('change', ()=>{
     populateAreaOptions();
@@ -1684,8 +1743,13 @@ function renderGrid(){
           ? `<span class="conflict-pop">⚠ CONFLICT</span>`
           : '';
 
+        const cancelledBadge = a.cancelled
+          ? `<span class="conflict-pop">CANCELLED</span>`
+          : '';
+
         html += `<div class="cell-chip${conflictClass}" data-appt="${a.id}">
           ${conflictBadge}
+          ${cancelledBadge}
           <b>${fmtTime12(a.time)}</b>
           ${ar?('<span>🚪 '+escapeHtml(ar.name)+'</span>'):''}
           ${ths?('<span>👤 '+escapeHtml(ths)+'</span>'):''}
@@ -1893,12 +1957,298 @@ function renderTherapistEditor(){
         id:uid(),
         name:name.trim(),
         deptId:deptId,
-        active:true
+        active:true,
+        duty:defaultStaffDuty()
       });
 
       persist();
     });
   });
+}
+
+function renderStaffDutyEditor(){
+  const panel = document.getElementById('staffDutyPanel');
+  const el = document.getElementById('staffDutyEditor');
+  const summary = document.getElementById('staffDutySummary');
+  const dateInput = document.getElementById('staffDutyDate');
+
+  if(!isAdmin()){
+    panel.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = '';
+
+  const today = new Date();
+  const todayStr =
+    today.getFullYear() + '-' +
+    String(today.getMonth()+1).padStart(2,'0') + '-' +
+    String(today.getDate()).padStart(2,'0');
+
+  if(!dateInput.value){
+    dateInput.value = todayStr;
+  }
+
+  const selectedDate = dateInput.value || todayStr;
+
+  const therapists = state.therapists
+    .filter(t => t.active !== false)
+    .sort((a,b) => (a.name||'').localeCompare(b.name||''));
+
+  function formatMinutes(minutes){
+    const m = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(m / 60);
+    const mins = m % 60;
+
+    if(hours === 0) return `${mins}m`;
+    if(mins === 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
+  }
+
+  if(summary){
+    summary.innerHTML = therapists.length ? `
+      <div style="overflow-x:auto;margin-bottom:16px;">
+        <table style="width:100%;border-collapse:collapse;min-width:700px;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--line);">Staff</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--line);">Department</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--line);">Status</th>
+              <th style="text-align:right;padding:8px;border-bottom:1px solid var(--line);">Required</th>
+              <th style="text-align:right;padding:8px;border-bottom:1px solid var(--line);">Scheduled</th>
+              <th style="text-align:right;padding:8px;border-bottom:1px solid var(--line);">Remaining</th>
+              <th style="text-align:right;padding:8px;border-bottom:1px solid var(--line);">Utilization</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${therapists.map(t=>{
+              const daily = dailyStaffDuty(t, selectedDate);
+
+              return `
+                <tr>
+                  <td style="padding:8px;border-bottom:1px solid var(--line);font-weight:600;">
+                    ${escapeHtml(t.name)}
+                  </td>
+
+                  <td style="padding:8px;border-bottom:1px solid var(--line);">
+                    ${escapeHtml(dept(t.deptId)?.name || 'Unassigned')}
+                  </td>
+
+                  <td style="padding:8px;border-bottom:1px solid var(--line);">
+                    ${daily.workingDay ? 'Working' : 'Off'}
+                  </td>
+
+                  <td style="padding:8px;border-bottom:1px solid var(--line);text-align:right;">
+                    ${formatMinutes(daily.requiredMinutes)}
+                  </td>
+
+                  <td style="padding:8px;border-bottom:1px solid var(--line);text-align:right;">
+                    ${formatMinutes(daily.scheduledMinutes)}
+                  </td>
+
+                  <td style="padding:8px;border-bottom:1px solid var(--line);text-align:right;">
+                    ${formatMinutes(daily.remainingMinutes)}
+                  </td>
+
+                  <td style="padding:8px;border-bottom:1px solid var(--line);text-align:right;font-weight:700;">
+                    ${daily.workingDay ? `${daily.utilization.toFixed(1)}%` : '—'}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '';
+  }
+
+  const dayNames = [
+    [1,'Mon'],[2,'Tue'],[3,'Wed'],[4,'Thu'],
+    [5,'Fri'],[6,'Sat'],[7,'Sun']
+  ];
+
+  el.innerHTML = therapists.length ? therapists.map(t=>{
+    const duty = staffDuty(t);
+
+    return `
+      <div class="cfg-row" data-duty-id="${t.id}" style="display:block;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">
+          ${escapeHtml(t.name)}
+        </div>
+
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="field" style="margin:0;">
+            <label>Start</label>
+            <input type="time" data-duty-field="start" value="${duty.start}">
+          </div>
+
+          <div class="field" style="margin:0;">
+            <label>End</label>
+            <input type="time" data-duty-field="end" value="${duty.end}">
+          </div>
+
+          <div class="field" style="margin:0;">
+            <label>Break start</label>
+            <input type="time" data-duty-field="breakStart" value="${duty.breakStart}">
+          </div>
+
+          <div class="field" style="margin:0;">
+            <label>Break end</label>
+            <input type="time" data-duty-field="breakEnd" value="${duty.breakEnd}">
+          </div>
+        </div>
+
+        <div style="margin-top:8px;">
+          <label style="display:block;margin-bottom:5px;">Working days</label>
+
+          <div class="chip-multi">
+            ${dayNames.map(([num,name])=>`
+              <label>
+                <input
+                  type="checkbox"
+                  data-duty-day="${num}"
+                  ${duty.workingDays.includes(num) ? 'checked' : ''}
+                >
+                ${name}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="hint" style="margin-top:7px;">
+          Required working time: <b>8 hours/day</b>
+        </div>
+      </div>
+    `;
+  }).join('') : `
+    <div class="empty-state" style="padding:20px;">
+      No active therapists found.
+    </div>
+  `;
+
+  if(dateInput){
+    dateInput.onchange = ()=>{
+      renderStaffDutyEditor();
+    };
+  }
+
+  el.querySelectorAll('[data-duty-id]').forEach(row=>{
+    const id = row.dataset.dutyId;
+
+    row.querySelectorAll('[data-duty-field]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const t = therapist(id);
+        if(!t) return;
+
+        const duty = staffDuty(t);
+        duty[inp.dataset.dutyField] =
+          inp.value || duty[inp.dataset.dutyField];
+
+        persist();
+        toast(`${t.name} duty hours updated`);
+      });
+    });
+
+    row.querySelectorAll('[data-duty-day]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const t = therapist(id);
+        if(!t) return;
+
+        const duty = staffDuty(t);
+        const day = Number(cb.dataset.dutyDay);
+
+        duty.workingDays = Array.from(
+          row.querySelectorAll('[data-duty-day]:checked')
+        ).map(x=>Number(x.dataset.dutyDay));
+
+        if(duty.workingDays.length === 0){
+          cb.checked = true;
+          duty.workingDays = [day];
+          toast('At least one working day must be selected.');
+          return;
+        }
+
+        persist();
+        toast(`${t.name} working days updated`);
+      });
+    });
+  });
+}
+function minutesBetween(start, end){
+  if(!start || !end) return 0;
+
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+
+  if([sh,sm,eh,em].some(Number.isNaN)) return 0;
+
+  return (eh * 60 + em) - (sh * 60 + sm);
+}
+
+function dayOfWeekISO(date){
+  if(!date) return null;
+
+  const d = new Date(date + 'T00:00:00');
+  if(Number.isNaN(d.getTime())) return null;
+
+  const day = d.getDay();
+  return day === 0 ? 7 : day;
+}
+
+function dutyRequiredMinutes(t, date){
+  const duty = staffDuty(t);
+  const day = dayOfWeekISO(date);
+
+  if(!day || !duty.workingDays.includes(day)) return 0;
+
+  const total = minutesBetween(duty.start, duty.end);
+  const breakMinutes = minutesBetween(duty.breakStart, duty.breakEnd);
+
+  return Math.max(0, total - Math.max(0, breakMinutes));
+}
+
+function scheduledMinutesForTherapist(t, date){
+  if(!t || !date) return 0;
+
+  return state.appointments
+    .filter(a =>
+      a.date === date &&
+      !a.cancelled &&
+      Array.isArray(a.therapistIds) &&
+      a.therapistIds.includes(t.id)
+    )
+    .reduce((total, a)=>{
+      const duration = Number(a.duration);
+      return total + (Number.isFinite(duration) && duration > 0 ? duration : 0);
+    }, 0);
+}
+
+function dailyStaffDuty(t, date){
+  if(!t || !date){
+    return {
+      requiredMinutes:0,
+      scheduledMinutes:0,
+      remainingMinutes:0,
+      utilization:0,
+      workingDay:false
+    };
+  }
+
+  const requiredMinutes = dutyRequiredMinutes(t, date);
+  const scheduledMinutes = scheduledMinutesForTherapist(t, date);
+  const remainingMinutes = Math.max(0, requiredMinutes - scheduledMinutes);
+
+  const utilization = requiredMinutes > 0
+    ? (scheduledMinutes / requiredMinutes) * 100
+    : 0;
+
+  return {
+    requiredMinutes,
+    scheduledMinutes,
+    remainingMinutes,
+    utilization,
+    workingDay: requiredMinutes > 0
+  };
 }
 
 function save_(){ persist(); }
@@ -2244,6 +2594,7 @@ function openApptModal(id, prefill){
   updateApptFieldVisibility();
 
   document.getElementById('afDelete').style.display = a ? 'inline-flex':'none';
+  document.getElementById('afCancelTreatment').style.display = a && !a.cancelled ? 'inline-flex':'none';
   document.getElementById('afCopyTomorrow').style.display = a ? 'inline-flex':'none';
   document.getElementById('conflictArea').innerHTML = '';
   document.getElementById('modalAppt').classList.add('show');
@@ -2645,6 +2996,86 @@ function saveAppt(){
 
 
 
+function cancelAppt(){
+  if(!editingApptId) return;
+
+  const existing = state.appointments.find(
+    x => x.id === editingApptId
+  );
+
+  if(!existing) return;
+
+  if(existing.cancelled){
+    toast('Treatment is already cancelled');
+    return;
+  }
+
+  if(!confirm('Cancel this scheduled treatment?')) return;
+
+  const authUser =
+    window.currentFirebaseUser || auth.currentUser;
+
+  const profile =
+    window.currentStaffProfile || null;
+
+  const username = authUser
+    ? (authUser.email || '').split('@')[0]
+    : (operator.name || '');
+
+  const displayName =
+    profile?.name ||
+    operator.name ||
+    username;
+
+  const role =
+    profile?.role ||
+    operator.role ||
+    '';
+
+  const patient =
+    state.patients.find(p => p.id === existing.patientId);
+
+  const dept =
+    state.departments.find(d => d.id === existing.deptId);
+
+  const now = Date.now();
+
+  Object.assign(existing, {
+    cancelled: true,
+    cancelledAt: now,
+    cancelledBy: displayName,
+    cancelledByRole: role,
+    cancelledByUid: authUser?.uid || '',
+    updatedBy: displayName,
+    updatedByRole: role,
+    updatedByUid: authUser?.uid || '',
+    updatedAt: now
+  });
+
+  addActivity(
+    'CANCEL_APPOINTMENT',
+    `${displayName} cancelled treatment for ${patient?.name || 'Unknown patient'}`,
+    {
+      appointmentId: existing.id,
+      patientId: existing.patientId || '',
+      patientName: patient?.name || 'Unknown patient',
+      department: dept?.name || 'Unknown department',
+      date: existing.date || '',
+      time: existing.time || '',
+      duration: Number(existing.duration) || 0,
+      role
+    }
+  );
+
+  editingApptId = null;
+
+  document.getElementById('modalAppt').classList.remove('show');
+
+  persist();
+
+  toast('Treatment cancelled');
+}
+
 function deleteAppt(){
   if(!editingApptId) return;
 
@@ -3030,7 +3461,12 @@ function renderAll(){
   if(currentView==='patients'){ renderPatientList(); renderPatientDetail(); }
   if(currentView==='resources'){ renderAreaEditor(); renderTherapistEditor(); }
   if(currentView==='print') renderPrint();
-  if(currentView==='settings'){ renderDeptEditor(); renderSettingsMisc(); renderActivityLog(); }
+  if(currentView==='settings'){
+    renderDeptEditor();
+    renderSettingsMisc();
+    renderStaffDutyEditor();
+    renderActivityLog();
+  }
 }
 
 boot();
