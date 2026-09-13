@@ -1097,7 +1097,7 @@ function defaultState(){
     {name:"Panchakarma", nameAr:"بانتشاكارما", style:"list", therapist:true, medicine:true, duration:true},
     {name:"Reflexology", nameAr:"العلاج الانعكاسي", style:"list", therapist:true, medicine:true, duration:true},
     {name:"Naturopathy", nameAr:"الطبيعة العلاجية", style:"list", therapist:true, medicine:false, duration:false},
-    {name:"Physiotherapy", nameAr:"العلاج الطبيعي", style:"grid", therapist:true, medicine:false, duration:false},
+    {name:"Physiotherapy", nameAr:"العلاج الطبيعي", style:"grid", therapist:true, medicine:true, duration:false},
     {name:"Hand Rehab", nameAr:"إعادة تأهيل اليد", style:"grid", therapist:true, medicine:false, duration:false},
     {name:"Yoga", nameAr:"يوغا", style:"list", therapist:true, medicine:false, duration:false},
     {name:"Acupuncture", nameAr:"الوخز بالإبر", style:"list", therapist:true, medicine:false, duration:false},
@@ -1417,6 +1417,15 @@ async function boot(){
 
   if(!state.version || state.version < 2){
     state = defaultState();
+  }
+
+  const physiotherapyDept = state.departments.find(
+    d => d.name === "Physiotherapy"
+  );
+
+  if(physiotherapyDept && physiotherapyDept.medicine !== true){
+    physiotherapyDept.medicine = true;
+    persist();
   }
 
   if(!Array.isArray(state.authorizedUsers)){
@@ -2603,13 +2612,16 @@ function openApptModal(id, prefill){
 function updateMedicineSuggestions() {
   const box = document.getElementById('medicineSuggestions');
   const input = document.getElementById('afMedicine');
+  const deptSelect = document.getElementById('afDept');
 
-  if (!box || !input) return;
+  if (!box || !input || !deptSelect) return;
 
   const current = input.value.trim().toLowerCase();
+  const currentDeptId = deptSelect.value;
 
   const history = [...new Set(
     state.appointments
+      .filter(a => a.deptId === currentDeptId)
       .map(a => (a.medicine || '').trim())
       .filter(Boolean)
   )];
