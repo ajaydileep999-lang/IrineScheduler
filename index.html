@@ -1037,7 +1037,7 @@ async function remoteLoad() {
         return null;
     } catch (e) {
         console.error("Firebase load error:", e);
-        return null;
+        throw e;
     }
 }
 async function remoteSave(s) {
@@ -1049,8 +1049,10 @@ async function remoteSave(s) {
                 updatedAt: Date.now()
             }
         );
+        return true;
     } catch (e) {
         console.error("Firebase save error:", e);
+        throw e;
     }
 }
 function localLoad(){
@@ -1287,18 +1289,39 @@ let printPatientId = null;
 
 /* ================= Persist / render ================= */
 let saveTimer = null;
+let persistInProgress = false;
+let persistQueue = Promise.resolve();
+
 function persist(){
 
     state.updatedAt = Date.now();
 
     localSave(state);
 
-    remoteSave(state);
+    const snapshot = JSON.parse(JSON.stringify(state));
+
+    persistQueue = persistQueue.then(async ()=>{
+
+        persistInProgress = true;
+        updateSyncDot();
+
+        try{
+            await remoteSave(snapshot);
+        }catch(err){
+            console.error("Firebase save failed:", err);
+            toast("Cloud save failed. Please try again.");
+        }finally{
+            persistInProgress = false;
+            updateSyncDot();
+        }
+
+    });
+
+    persistQueue.catch(err=>{
+        console.error("Persistence queue error:", err);
+    });
 
     renderAll();
-
-    updateSyncDot();
-
 }
 
 /* ================= Init / boot ================= */
@@ -1310,17 +1333,28 @@ async function boot(){
     return;
   }
 
-  const remote = await remoteLoad();
-  const local = localLoad();
+  let remote;
+
+  try{
+    remote = await remoteLoad();
+  }catch(err){
+    console.error("Scheduler startup load failed:", err);
+    toast("Unable to load scheduler data from Firebase. Please refresh and try again.");
+    return;
+  }
 
   // Firebase is the shared source of truth.
-  // Never overwrite valid Firebase data with local/default data on startup.
+  // Local data is used only when the Firebase document genuinely does not exist.
   if(remote){
     state = remote;
-  }else if(local){
-    state = local;
   }else{
-    state = defaultState();
+    const local = localLoad();
+
+    if(local){
+      state = local;
+    }else{
+      state = defaultState();
+    }
   }
 
   if(!state.version || state.version < 2){
