@@ -378,9 +378,11 @@ body.login-locked .container { display:none !important; }
             <label class="sel" data-mode="total"><input type="radio" name="pmode" value="total" checked>Full Day Schedule</label>
             <label data-mode="dept"><input type="radio" name="pmode" value="dept">By Department</label>
             <label data-mode="patient"><input type="radio" name="pmode" value="patient">By Patient</label>
+            <label data-mode="staff" id="printStaffModeLabel" style="display:none;"><input type="radio" name="pmode" value="staff">Staff Daily Duty</label>
           </div>
           <select id="printDeptSelect" style="display:none;max-width:220px;"></select>
           <select id="printPatientSelect" style="display:none;max-width:240px;"></select>
+          <select id="printStaffSelect" style="display:none;max-width:240px;"></select>
         </div>
         <div id="printBody"></div>
       </div>
@@ -721,6 +723,8 @@ const USER_SESSION_HEARTBEAT_MS = 30 * 1000;
 
 let userSessionHeartbeat = null;
 let userSessionId = null;
+let userSessionClaimPromise = null;
+let userSessionClaimUid = null;
 let intentionalLogout = false;
 
 function createUserSessionId(){
@@ -728,47 +732,68 @@ function createUserSessionId(){
 }
 
 async function claimUserSession(user){
-  if(!user || user.uid === ADMIN_UID) return true;
+  if(!user || user.uid === ADMIN_UID) return "ALLOWED";
+
+  /*
+   * Login and onAuthStateChanged can both request the same User session
+   * at nearly the same time. Reuse the same claim promise so only one
+   * Firestore transaction/session ID is created.
+   */
+  if(
+    userSessionClaimPromise &&
+    userSessionClaimUid === user.uid
+  ){
+    return userSessionClaimPromise;
+  }
 
   const sessionId = createUserSessionId();
+  userSessionClaimUid = user.uid;
 
-  try{
-    await runTransaction(db, async transaction => {
-      const snap = await transaction.get(USER_SESSION_REF);
-      const existing = snap.exists() ? snap.data() : null;
-      const now = Date.now();
+  userSessionClaimPromise = (async ()=>{
+    try{
+      await runTransaction(db, async transaction => {
+        const snap = await transaction.get(USER_SESSION_REF);
+        const existing = snap.exists() ? snap.data() : null;
+        const now = Date.now();
 
-      if(
-        existing &&
-        existing.uid &&
-        existing.uid !== user.uid &&
-        Number(existing.expiresAt || 0) > now
-      ){
-        throw new Error("USER_SESSION_OCCUPIED");
+        if(
+          existing &&
+          existing.uid &&
+          existing.uid !== user.uid &&
+          Number(existing.expiresAt || 0) > now
+        ){
+          throw new Error("USER_SESSION_OCCUPIED");
+        }
+
+        transaction.set(USER_SESSION_REF, {
+          uid: user.uid,
+          sessionId: sessionId,
+          startedAt: now,
+          heartbeatAt: now,
+          expiresAt: now + USER_SESSION_LEASE_MS
+        });
+      });
+
+      userSessionId = sessionId;
+      startUserSessionHeartbeat();
+
+      return "ALLOWED";
+
+    }catch(e){
+      if(e.message === "USER_SESSION_OCCUPIED"){
+        return "OCCUPIED";
       }
 
-      transaction.set(USER_SESSION_REF, {
-        uid: user.uid,
-        sessionId: sessionId,
-        startedAt: now,
-        heartbeatAt: now,
-        expiresAt: now + USER_SESSION_LEASE_MS
-      });
-    });
+      console.error("User session claim failed:", e);
+      return "ERROR";
 
-    userSessionId = sessionId;
-    startUserSessionHeartbeat();
-
-    return true;
-
-  }catch(e){
-    if(e.message === "USER_SESSION_OCCUPIED"){
-      return false;
+    }finally{
+      userSessionClaimPromise = null;
+      userSessionClaimUid = null;
     }
+  })();
 
-    console.error("User session claim failed:", e);
-    return false;
-  }
+  return userSessionClaimPromise;
 }
 
 function startUserSessionHeartbeat(){
@@ -891,6 +916,11 @@ function isAdmin(){
 function updateAdminTabs(){
   const admin = isAdmin();
 
+  const staffDutyLabel = document.getElementById('printStaffModeLabel');
+  if(staffDutyLabel){
+    staffDutyLabel.style.display = admin ? '' : 'none';
+  }
+
   document.querySelectorAll('.tab-btn[data-view="resources"], .tab-btn[data-view="settings"]')
     .forEach(btn => {
       btn.style.display = admin ? '' : 'none';
@@ -934,9 +964,15 @@ loginForm.addEventListener('submit', async (e)=>{
     if(cred.user.uid !== ADMIN_UID){
       const claimed = await claimUserSession(cred.user);
 
-      if(!claimed){
+      if(claimed === "OCCUPIED"){
         await signOut(auth);
         showLoginError('Another User is currently logged in. Please try again after that User logs out.');
+        return;
+      }
+
+      if(claimed === "ERROR"){
+        await signOut(auth);
+        showLoginError('Unable to verify the User session. Please try again.');
         return;
       }
     }
@@ -995,7 +1031,7 @@ onAuthStateChanged(auth, async user=>{
 
       const claimed = await claimUserSession(user);
 
-      if(!claimed){
+      if(claimed === "OCCUPIED" || claimed === "ERROR"){
         await signOut(auth);
 
         window.currentFirebaseUser = null;
@@ -1005,7 +1041,9 @@ onAuthStateChanged(auth, async user=>{
         loginScreen.style.display='flex';
 
         showLoginError(
-          'Another User is currently logged in. Please try again after that User logs out.'
+          claimed === "OCCUPIED"
+            ? 'Another User is currently logged in. Please try again after that User logs out.'
+            : 'Unable to verify the User session. Please try again.'
         );
 
         return;
@@ -1345,6 +1383,7 @@ let editingPatientId = null;
 let printMode = "total";
 let printDeptId = null;
 let printPatientId = null;
+let printStaffId = null;
 
 /* ================= Persist / render ================= */
 let saveTimer = null;
@@ -1650,11 +1689,13 @@ function wireUI(){
       document.querySelectorAll('#printModeRadio label').forEach(l=>l.classList.toggle('sel', l.dataset.mode===printMode));
       document.getElementById('printDeptSelect').style.display = printMode==='dept' ? 'block':'none';
       document.getElementById('printPatientSelect').style.display = printMode==='patient' ? 'block':'none';
+      document.getElementById('printStaffSelect').style.display = printMode==='staff' ? 'block':'none';
       renderPrint();
     });
   });
   document.getElementById('printDeptSelect').addEventListener('change', e=>{ printDeptId=e.target.value; renderPrint(); });
   document.getElementById('printPatientSelect').addEventListener('change', e=>{ printPatientId=e.target.value; renderPrint(); });
+  document.getElementById('printStaffSelect').addEventListener('change', e=>{ printStaffId=e.target.value; renderPrint(); });
   document.getElementById('btnPrint').onclick = ()=>window.print();
 
   // activity / audit log
@@ -2278,10 +2319,49 @@ function renderPrint(){
   if(!printPatientId || !patient(printPatientId)) printPatientId = activePatients[0]?.id||null;
   patSel.value = printPatientId;
 
+  const staffSel = document.getElementById('printStaffSelect');
+
+  const activeStaff = activeTherapists()
+    .slice()
+    .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+
+  const groupedStaff = [];
+  const staffGroups = new Map();
+
+  activeStaff.forEach(t=>{
+    const key = (t.name || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+
+    if(!staffGroups.has(key)){
+      const group = {
+        id: t.id,
+        name: (t.name || 'Unnamed Staff').trim(),
+        therapistIds: []
+      };
+      staffGroups.set(key, group);
+      groupedStaff.push(group);
+    }
+
+    staffGroups.get(key).therapistIds.push(t.id);
+  });
+
+  staffSel.innerHTML = groupedStaff.map(g =>
+    `<option value="${g.id}">${escapeHtml(g.name)}</option>`
+  ).join('');
+
+  if(!printStaffId || !therapist(printStaffId)){
+    printStaffId = groupedStaff[0]?.id || null;
+  }
+
+  staffSel.value = printStaffId || '';
+
   const body = document.getElementById('printBody');
   if(printMode==='total') body.innerHTML = renderTotalPrint();
   else if(printMode==='dept') body.innerHTML = renderDeptPrint(printDeptId);
-  else body.innerHTML = renderPatientPrint(printPatientId);
+  else if(printMode==='patient') body.innerHTML = renderPatientPrint(printPatientId);
+  else if(printMode==='staff') body.innerHTML = renderStaffDailyDutyPrint(printStaffId, activeDate);
 }
 function renderTotalPrint(){
   const depts = activeDepts();
@@ -2360,6 +2440,212 @@ function renderPatientPrint(patientId){
       <td>${ths?('Therapist: '+escapeHtml(ths)+'<br>'):''}${a.medicine?escapeHtml(a.medicine):''}</td></tr>`;
   });
   html += '</tbody></table>';
+  return html;
+}
+
+
+function renderStaffDailyDutyPrint(staffId, date){
+  const selectedDate = date || activeDate;
+  const selectedStaff = therapist(staffId);
+
+  if(!selectedStaff){
+    return '<div class="empty-state">Please select a staff / therapist.</div>';
+  }
+
+  const selectedNameKey = (selectedStaff.name || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+
+  const groupedTherapists = activeTherapists()
+    .filter(t=>{
+      const nameKey = (t.name || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
+      return nameKey === selectedNameKey;
+    });
+
+  const groupedTherapistIds = groupedTherapists.map(t=>t.id);
+
+  const therapists = [selectedStaff];
+
+  function formatMinutes(minutes){
+    const m = Math.max(0, Math.round(Number(minutes) || 0));
+    const hours = Math.floor(m / 60);
+    const mins = m % 60;
+
+    if(hours === 0) return `${mins}m`;
+    if(mins === 0) return `${hours}h`;
+    return `${hours}h ${mins}m`;
+  }
+
+  let html = `
+    <div class="dept-title-bar">
+      <span>STAFF DAILY DUTY — ${fmtDateLabel(selectedDate)}</span>
+      <span style="font-size:11.5px;font-weight:400;">${therapists.length} staff</span>
+    </div>
+  `;
+
+  if(!therapists.length){
+    return html + '<div class="empty-state">No active staff / therapists.</div>';
+  }
+
+  html += `
+    <div style="margin-bottom:18px;">
+      <h3 style="margin:0 0 8px;color:var(--teal-dark);font-size:15px;">
+        Daily Duty Summary
+      </h3>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th>Staff / Therapist</th>
+            <th>Department</th>
+            <th>Status</th>
+            <th>Required Duty</th>
+            <th>Scheduled Duty</th>
+            <th>Remaining</th>
+            <th>Utilization</th>
+            <th>Treatments</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  therapists.forEach(t=>{
+    const requiredMinutes = dutyRequiredMinutes(t, selectedDate);
+
+    const scheduledAppointments = state.appointments.filter(a =>
+      a.date === selectedDate &&
+      !a.cancelled &&
+      Array.isArray(a.therapistIds) &&
+      a.therapistIds.some(id=>groupedTherapistIds.includes(id))
+    );
+
+    const scheduledMinutes = scheduledAppointments.reduce((total, a)=>{
+      const duration = Number(a.duration);
+      return total + (Number.isFinite(duration) && duration > 0 ? duration : 0);
+    }, 0);
+
+    const remainingMinutes = Math.max(0, requiredMinutes - scheduledMinutes);
+
+    const utilization = requiredMinutes > 0
+      ? (scheduledMinutes / requiredMinutes) * 100
+      : 0;
+
+    const daily = {
+      requiredMinutes,
+      scheduledMinutes,
+      remainingMinutes,
+      utilization,
+      workingDay: requiredMinutes > 0
+    };
+
+    const treatmentCount = scheduledAppointments.length;
+
+    html += `
+      <tr>
+        <td><strong>${escapeHtml(t.name||'-')}</strong></td>
+        <td>${escapeHtml(dept(t.deptId)?.name || 'Unassigned')}</td>
+        <td>${daily.workingDay ? 'Working' : 'Off'}</td>
+        <td>${formatMinutes(daily.requiredMinutes)}</td>
+        <td>${formatMinutes(daily.scheduledMinutes)}</td>
+        <td>${formatMinutes(daily.remainingMinutes)}</td>
+        <td>${daily.workingDay ? daily.utilization.toFixed(1)+'%' : '—'}</td>
+        <td>${treatmentCount}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="margin:0 0 10px;color:var(--teal-dark);font-size:15px;">
+        Detailed Duty List
+      </h3>
+  `;
+
+  therapists.forEach(t=>{
+    const daily = dailyStaffDuty(t, selectedDate);
+
+    const rows = state.appointments
+      .filter(a =>
+        a.date === selectedDate &&
+        !a.cancelled &&
+        Array.isArray(a.therapistIds) &&
+        a.therapistIds.some(id=>groupedTherapistIds.includes(id))
+      )
+      .map(a=>({
+        ...a,
+        p:patient(a.patientId),
+        d:dept(a.deptId),
+        ar:area(a.areaId)
+      }))
+      .filter(r=>r.p)
+      .sort((a,b)=>
+        (a.time||'').localeCompare(b.time||'') ||
+        (a.p.name||'').localeCompare(b.p.name||'')
+      );
+
+    html += `
+      <div style="margin:18px 0 8px;page-break-inside:avoid;">
+        <div style="padding:9px 11px;background:var(--teal-light);border-radius:8px;font-weight:700;">
+          ${escapeHtml(t.name||'-')}
+          <span style="font-weight:400;margin-left:10px;">
+            ${escapeHtml(dept(t.deptId)?.name || 'Unassigned')}
+            — ${daily.workingDay ? 'Working' : 'Off'}
+            — Scheduled: ${formatMinutes(daily.scheduledMinutes)}
+            — ${rows.length} treatment${rows.length===1?'':'s'}
+          </span>
+        </div>
+    `;
+
+    if(!rows.length){
+      html += `<div class="empty-state" style="margin:6px 0;">No treatments scheduled.</div></div>`;
+      return;
+    }
+
+    html += `
+        <table class="print-table" style="margin-top:6px;">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Patient</th>
+              <th>Department</th>
+              <th>Treatment / Notes</th>
+              <th>Room / Area</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    rows.forEach(r=>{
+      html += `
+        <tr>
+          <td>${fmtTime12(r.time)}</td>
+          <td>${escapeHtml(r.p.name||'-')}</td>
+          <td>${escapeHtml(r.d?.name || '-')}</td>
+          <td>${escapeHtml(r.medicine || '')}</td>
+          <td>${escapeHtml(r.ar?.name || r.p.room || '-')}</td>
+          <td>${r.duration ? Number(r.duration)+' min' : ''}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+          </tbody>
+        </table>
+      </div>
+    `;
+  });
+
+  html += '</div>';
+
   return html;
 }
 
