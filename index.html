@@ -295,6 +295,12 @@ body.login-locked .container { display:none !important; }
       <button class="icon-btn" id="dateFwd">›</button>
       <button class="icon-btn" id="dateToday" title="Jump to today">●</button>
     </div>
+    <div id="scheduleLockStatus" style="font-size:11px;font-weight:700;padding:6px 9px;border-radius:7px;background:rgba(255,255,255,0.12);color:#fff;white-space:nowrap;">
+      Schedule Enabled
+    </div>
+    <button class="btn btn-outline btn-sm" id="btnToggleScheduleLock" style="display:none;">
+      🔒 Lock Schedule
+    </button>
     <div class="operator-pill" id="operatorPill" title="Logged-in user — click to log out"><span class="sync-dot" id="syncDot"></span><span id="operatorLabel">Not signed in</span></div>
     <button class="icon-btn" id="btnRefresh" title="Refresh from shared data">⟳</button>
   </div>
@@ -913,6 +919,92 @@ function isAdmin(){
   return !!window.currentFirebaseUser &&
          window.currentFirebaseUser.uid === ADMIN_UID;
 }
+
+function getScheduleLock(date){
+  if(!date || !state || !state.scheduleLocks){
+    return null;
+  }
+
+  const lock = state.scheduleLocks[date];
+
+  if(!lock || lock.locked !== true){
+    return null;
+  }
+
+  return lock;
+}
+
+function isDateLocked(date){
+  return !!getScheduleLock(date);
+}
+
+function canEditDate(date){
+  return isAdmin() || !isDateLocked(date);
+}
+
+function updateScheduleLockUI(){
+  const status = document.getElementById('scheduleLockStatus');
+  const toggle = document.getElementById('btnToggleScheduleLock');
+
+  if(!status || !toggle) return;
+
+  const date = activeDate;
+  const locked = isDateLocked(date);
+
+  status.textContent = locked
+    ? '🔒 Schedule Locked'
+    : '🔓 Schedule Enabled';
+
+  if(locked){
+    status.style.background = 'rgba(220, 53, 69, 0.22)';
+  }else{
+    status.style.background = 'rgba(255,255,255,0.12)';
+  }
+
+  if(isAdmin() && date <= todayISO()){
+    toggle.style.display = 'inline-flex';
+    toggle.textContent = locked
+      ? '🔓 Enable Schedule'
+      : '🔒 Lock Schedule';
+  }else{
+    toggle.style.display = 'none';
+  }
+}
+
+function toggleScheduleLock(){
+  if(!isAdmin()){
+    toast('Only Admin can change schedule lock status.');
+    return;
+  }
+
+  const date = activeDate;
+
+  if(date > todayISO()){
+    toast('Future schedules cannot be locked.');
+    return;
+  }
+
+  if(!state.scheduleLocks || typeof state.scheduleLocks !== 'object'){
+    state.scheduleLocks = {};
+  }
+
+  if(isDateLocked(date)){
+    delete state.scheduleLocks[date];
+    toast('Schedule enabled');
+  }else{
+    state.scheduleLocks[date] = {
+      locked: true,
+      lockedAt: Date.now(),
+      lockedByUid: window.currentFirebaseUser?.uid || '',
+      lockedBy: window.currentStaffProfile?.name || operator.name || 'Admin'
+    };
+    toast('Schedule locked');
+  }
+
+  persist();
+  updateScheduleLockUI();
+}
+
 function updateAdminTabs(){
   const admin = isAdmin();
 
@@ -1174,6 +1266,7 @@ function defaultState(){
     therapists: therapists,
     patients: [],
     appointments: [],
+    scheduleLocks: {},
     authorizedUsers: [
       {id:"login_test", login:"test", name:"Test User", role:"RMO", active:true}
     ]
@@ -1550,11 +1643,36 @@ function loadSampleIfEmpty(){
 
 /* ================= UI wiring ================= */
 function wireUI(){
-  document.getElementById('activeDate').addEventListener('change', e=>{ activeDate=e.target.value||todayISO(); renderAll(); });
-  document.getElementById('dateBack').onclick = ()=>shiftDate(-1);
-  document.getElementById('dateFwd').onclick = ()=>shiftDate(1);
-  document.getElementById('dateToday').onclick = ()=>{ activeDate=todayISO(); document.getElementById('activeDate').value=activeDate; renderAll(); };
-  document.getElementById('btnRefresh').onclick = async ()=>{ await pullRemote(); toast('Refreshed'); };
+  document.getElementById('activeDate').addEventListener('change', e=>{
+    activeDate=e.target.value||todayISO();
+    renderAll();
+    updateScheduleLockUI();
+  });
+
+  document.getElementById('dateBack').onclick = ()=>{
+    shiftDate(-1);
+    updateScheduleLockUI();
+  };
+
+  document.getElementById('dateFwd').onclick = ()=>{
+    shiftDate(1);
+    updateScheduleLockUI();
+  };
+
+  document.getElementById('dateToday').onclick = ()=>{
+    activeDate=todayISO();
+    document.getElementById('activeDate').value=activeDate;
+    renderAll();
+    updateScheduleLockUI();
+  };
+
+  document.getElementById('btnToggleScheduleLock').onclick = toggleScheduleLock;
+
+  document.getElementById('btnRefresh').onclick = async ()=>{
+    await pullRemote();
+    updateScheduleLockUI();
+    toast('Refreshed');
+  };
 
   document.getElementById('tabs').addEventListener('click', e=>{
     const btn = e.target.closest('.tab-btn');
@@ -1807,7 +1925,10 @@ function renderGrid(){
           ${ths?('<span>👤 '+escapeHtml(ths)+'</span>'):''}
         </div>`;
       });
-      html += `<div class="cell-add" data-add-patient="${p.id}" data-add-dept="${d.id}">+ add</div></td>`;
+      if(isAdmin() || !isDateLocked(activeDate)){
+        html += `<div class="cell-add" data-add-patient="${p.id}" data-add-dept="${d.id}">+ add</div>`;
+      }
+      html += '</td>';
     });
     html += '</tr>';
   });
@@ -2894,6 +3015,32 @@ function openApptModal(id, prefill){
   document.getElementById('afCancelTreatment').style.display = a && !a.cancelled ? 'inline-flex':'none';
   document.getElementById('afRestoreTreatment').style.display = a && a.cancelled ? 'inline-flex':'none';
   document.getElementById('afCopyTomorrow').style.display = a ? 'inline-flex':'none';
+
+  const scheduleViewOnly = !isAdmin() && isDateLocked(a ? a.date : activeDate);
+
+  if(scheduleViewOnly){
+    document.getElementById('modalApptTitle').textContent =
+      a ? 'View Treatment — Schedule Locked' : 'Schedule Locked — View Only';
+
+    document.querySelectorAll(
+      '#modalAppt input, #modalAppt select, #modalAppt textarea'
+    ).forEach(el => {
+      el.disabled = true;
+    });
+
+    document.querySelectorAll(
+      '#modalAppt .therapist-chip, #modalAppt .medicine-suggestion'
+    ).forEach(el => {
+      el.disabled = true;
+    });
+
+    ['afSave','afDelete','afCancelTreatment','afRestoreTreatment','afCopyTomorrow']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.style.display = 'none';
+      });
+  }
+
   document.getElementById('conflictArea').innerHTML = '';
   document.getElementById('modalAppt').classList.add('show');
   refreshConflictPreview();
@@ -3058,14 +3205,26 @@ function refreshConflictPreview(){
 function saveAppt(){
   const v = currentApptFormValues();
 
+  const existing = editingApptId
+    ? state.appointments.find(x => x.id === editingApptId)
+    : null;
+
+  if(!isAdmin()){
+    if(existing && !canEditDate(existing.date)){
+      toast('This schedule is locked. Only Admin can edit it.');
+      return;
+    }
+
+    if(!canEditDate(v.date)){
+      toast('This schedule is locked. Only Admin can edit it.');
+      return;
+    }
+  }
+
   if(!v.patientId || !v.deptId){
     alert('Please choose a patient and department.');
     return;
   }
-
-  const existing = editingApptId
-    ? state.appointments.find(x => x.id === editingApptId)
-    : null;
 
   const {
     hard,
@@ -3306,6 +3465,11 @@ function cancelAppt(){
 
   if(!existing) return;
 
+  if(!isAdmin() && !canEditDate(existing.date)){
+    toast('This schedule is locked. Only Admin can edit it.');
+    return;
+  }
+
   if(existing.cancelled){
     toast('Treatment is already cancelled');
     return;
@@ -3387,6 +3551,11 @@ function restoreAppt(){
 
   if(!existing) return;
 
+  if(!isAdmin() && !canEditDate(existing.date)){
+    toast('This schedule is locked. Only Admin can edit it.');
+    return;
+  }
+
   if(!existing.cancelled){
     toast('Treatment is already active');
     return;
@@ -3461,13 +3630,18 @@ function restoreAppt(){
 function deleteAppt(){
   if(!editingApptId) return;
 
-  if(!confirm('Delete this scheduled treatment?')) return;
-
   const existing = state.appointments.find(
     x => x.id === editingApptId
   );
 
   if(!existing) return;
+
+  if(!isAdmin() && !canEditDate(existing.date)){
+    toast('This schedule is locked. Only Admin can edit it.');
+    return;
+  }
+
+  if(!confirm('Delete this scheduled treatment?')) return;
 
   const authUser =
     window.currentFirebaseUser || auth.currentUser;
@@ -3537,8 +3711,14 @@ function copyApptToTomorrow(){
 
   const tomorrow =
     sourceDate.getFullYear() + "-" +
-    String(sourceDate.getMonth() + 1).padStart(2, "0") + "-" +
+    String(sourceDate.getMonth() + 1).padStart(2, "0") +
+    "-" +
     String(sourceDate.getDate()).padStart(2, "0");
+
+  if(!isAdmin() && !canEditDate(tomorrow)){
+    toast('The destination schedule is locked. Only Admin can copy to it.');
+    return;
+  }
 
   /*
    * IMPORTANT:
