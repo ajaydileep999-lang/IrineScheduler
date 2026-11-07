@@ -1175,42 +1175,130 @@ const STORE_KEY = "ihc_scheduler_v2";
 const SHARED_KEY = "schedule-data";
 const hasShared = () => true;
 
+const APPOINTMENT_CHUNK_SIZE = 300000;
+
 async function remoteLoad() {
-    try {
-        const docRef = doc(db, "scheduler", "main");
-        const docSnap = await getDoc(docRef);
+    const mainRef = doc(db, "scheduler", "main");
+    const snap = await getDoc(mainRef);
+    if (!snap.exists()) return null;
 
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            const schedule = data.schedule;
-            if(!schedule) return null;
+    const data = snap.data();
 
-            return {
-                ...schedule,
-                updatedAt: data.updatedAt || schedule.updatedAt || 0
-            };
+    // Read the new chunked format.
+    if (data.storageSchema === 2) {
+        const schedule = data.schedule || {};
+        const generation = data.appointmentGeneration;
+        const count = Number(data.appointmentChunkCount || 0);
+        let appointments = [];
+
+        if (count > 0 && !generation) {
+            throw new Error("Appointment storage manifest is incomplete.");
         }
 
-        return null;
-    } catch (e) {
-        console.error("Firebase load error:", e);
-        throw e;
-    }
-}
-async function remoteSave(s) {
-    try {
-        await setDoc(
-            doc(db, "scheduler", "main"),
-            {
-                schedule: s,
-                updatedAt: Date.now()
+        for (let i = 0; i < count; i += 1) {
+            const chunkId = generation + "_" + String(i).padStart(5, "0");
+            const chunkSnap = await getDoc(
+                doc(db, "scheduler", "main", "appointmentChunks", chunkId)
+            );
+
+            if (!chunkSnap.exists()) {
+                throw new Error("Missing appointment data chunk: " + chunkId);
             }
-        );
-        return true;
-    } catch (e) {
-        console.error("Firebase save error:", e);
-        throw e;
+
+            const chunk = chunkSnap.data();
+            if (chunk.generation !== generation || !Array.isArray(chunk.appointments)) {
+                throw new Error("Invalid appointment data chunk: " + chunkId);
+            }
+            appointments.push(...chunk.appointments);
+        }
+
+        if (appointments.length !== Number(data.appointmentCount || 0)) {
+            throw new Error("Appointment count verification failed; refusing incomplete load.");
+        }
+
+        return {
+            ...schedule,
+            appointments,
+            updatedAt: data.updatedAt || schedule.updatedAt || 0
+        };
     }
+
+    // Backward compatibility with the original single-document format.
+    const schedule = data.schedule;
+    if (!schedule) return null;
+    return {
+        ...schedule,
+        updatedAt: data.updatedAt || schedule.updatedAt || 0
+    };
+}
+
+async function remoteSave(s) {
+    const allAppointments = Array.isArray(s.appointments) ? s.appointments : [];
+    const schedule = { ...s };
+    delete schedule.appointments;
+
+    // Build chunks using UTF-8 byte size, not JavaScript character count.
+    const chunks = [];
+    let current = [];
+    let currentBytes = 2;
+
+    for (const appointment of allAppointments) {
+        const itemBytes = new TextEncoder().encode(JSON.stringify(appointment)).length;
+        if (itemBytes + 1000 > APPOINTMENT_CHUNK_SIZE) {
+            throw new Error("A single appointment record is too large to store safely.");
+        }
+
+        if (current.length && currentBytes + itemBytes + 1 > APPOINTMENT_CHUNK_SIZE) {
+            chunks.push(current);
+            current = [];
+            currentBytes = 2;
+        }
+        current.push(appointment);
+        currentBytes += itemBytes + 1;
+    }
+    if (current.length) chunks.push(current);
+
+    const generation = Date.now().toString(36) + "_" +
+        Math.random().toString(36).slice(2, 10);
+    const chunkRefs = [];
+
+    // Write the new generation first; do not change the main manifest yet.
+    for (let i = 0; i < chunks.length; i += 1) {
+        const chunkId = generation + "_" + String(i).padStart(5, "0");
+        const chunkRef = doc(db, "scheduler", "main", "appointmentChunks", chunkId);
+        const chunkData = {
+            generation,
+            index: i,
+            appointments: chunks[i]
+        };
+
+        await setDoc(chunkRef, chunkData);
+        chunkRefs.push({ ref: chunkRef, expectedCount: chunks[i].length });
+    }
+
+    // Verify every new chunk before publishing its generation.
+    for (const item of chunkRefs) {
+        const verify = await getDoc(item.ref);
+        if (!verify.exists() ||
+            !Array.isArray(verify.data().appointments) ||
+            verify.data().appointments.length !== item.expectedCount ||
+            verify.data().generation !== generation) {
+            throw new Error("Appointment chunk verification failed; manifest was not changed.");
+        }
+    }
+
+    // Publish the compact manifest last. Existing legacy data stays in place
+    // until every new appointment chunk has been verified.
+    await setDoc(doc(db, "scheduler", "main"), {
+        storageSchema: 2,
+        schedule,
+        appointmentGeneration: generation,
+        appointmentChunkCount: chunks.length,
+        appointmentCount: allAppointments.length,
+        updatedAt: s.updatedAt || Date.now()
+    });
+
+    return true;
 }
 function localLoad(){
   try{ const raw = localStorage.getItem(STORE_KEY); if(raw) return JSON.parse(raw); }catch(e){}
@@ -1575,30 +1663,24 @@ async function boot(){
 
   localSave(state);
 
-  onSnapshot(doc(db, "scheduler", "main"), (snapshot) => {
+  onSnapshot(doc(db, "scheduler", "main"), async (snapshot) => {
+    if (!snapshot.exists()) return;
 
-    if(!snapshot.exists()) return;
-
-    const data = snapshot.data();
-    const schedule = data.schedule;
-
-    if(!schedule) return;
-
-    const remoteState = {
-      ...schedule,
-      updatedAt: data.updatedAt || schedule.updatedAt || 0
-    };
-
-    if(
-      !state ||
-      remoteState.updatedAt > (state.updatedAt || 0)
-    ){
-      state = remoteState;
-      localSave(state);
-      renderAll();
-      updateSyncDot();
+    try {
+      const remoteState = await remoteLoad();
+      if (
+        remoteState &&
+        (!state || remoteState.updatedAt > (state.updatedAt || 0))
+      ) {
+        state = remoteState;
+        localSave(state);
+        renderAll();
+        updateSyncDot();
+      }
+    } catch (err) {
+      console.error("Live scheduler sync failed:", err);
+      toast("Unable to load updated cloud schedule. Please do not make more changes until sync recovers.");
     }
-
   });
 
   loadSampleIfEmpty();
